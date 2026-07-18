@@ -31,6 +31,50 @@ MAX_CONCURRENT_REQUESTS = 6
 _outbound = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
 
 
+class TokenBucket:
+    """Thread-safe token bucket for pacing outbound calls to a provider.
+
+    Refills `rate` tokens per second up to `capacity`. `acquire()` blocks
+    until a token is available (or `timeout` elapses), smoothing bursts so a
+    concurrent workload — e.g. the screener scoring many tickers — does not
+    exceed a provider's requests-per-minute limit.
+    """
+
+    def __init__(self, rate_per_sec: float, capacity: float) -> None:
+        self.rate = rate_per_sec
+        self.capacity = capacity
+        self._tokens = capacity
+        self._updated = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self, timeout: float | None = None) -> bool:
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    self.capacity, self._tokens + (now - self._updated) * self.rate
+                )
+                self._updated = now
+                if self._tokens >= 1:
+                    self._tokens -= 1
+                    return True
+                wait = (1 - self._tokens) / self.rate
+            if deadline is not None and time.monotonic() + wait > deadline:
+                return False
+            time.sleep(min(wait, 0.25))
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header (delta-seconds form) into seconds, capped."""
+    if not value:
+        return None
+    try:
+        return min(float(value), 30.0)  # cap so a huge value can't hang a request
+    except ValueError:
+        return None  # HTTP-date form not supported; use default backoff
+
+
 def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
     """Copy `params` with sensitive values masked, safe to put in log text."""
     if not params:
@@ -45,7 +89,13 @@ class Provider:
 
     Subclasses build request URLs/params and call `get_json`, which
     handles cache-first serving and resilient retries uniformly.
+
+    A subclass may set a class-level `rate_bucket` (a `TokenBucket`) to pace
+    its outbound calls; the default `None` means no pacing.
     """
+
+    # Opt-in per-provider request pacing; overridden by subclasses that need it.
+    rate_bucket: "TokenBucket | None" = None
 
     def __init__(
         self,
@@ -94,6 +144,8 @@ class Provider:
         for attempt in range(_MAX_ATTEMPTS):
             is_last_attempt = attempt == _MAX_ATTEMPTS - 1
             try:
+                if self.rate_bucket is not None:
+                    self.rate_bucket.acquire()  # pace outbound calls (req/min)
                 with _outbound:  # cap simultaneous outbound calls (rate-limit guard)
                     response = self.client.get(url, params=params, headers=headers)
             except httpx.TransportError as exc:
@@ -124,6 +176,22 @@ class Provider:
                     return None
                 self.cache.put(ticker, cache_key, payload)
                 return payload
+
+            if response.status_code == 429:
+                # Rate-limited: retryable. Honor Retry-After when present,
+                # otherwise fall back to the standard backoff schedule.
+                logger.warning(
+                    "wbj provider rate-limited (attempt %d/%d) url=%s params=%s",
+                    attempt + 1,
+                    _MAX_ATTEMPTS,
+                    url,
+                    safe_params,
+                )
+                if not is_last_attempt:
+                    retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                    self._sleep(retry_after if retry_after is not None
+                                else _BACKOFF_SECONDS[attempt])
+                continue
 
             if response.status_code < 500:
                 logger.warning(

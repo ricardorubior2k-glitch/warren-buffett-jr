@@ -507,8 +507,9 @@
 
   // init: market panels + scored watchlist + memoria + news + a default ticker
   loadMovers(); loadHeatmap(); loadMacro(); loadWatchlist(); loadMemoria(); loadNews(); select("AAPL");
-  // refresh delayed market panels every 60s
-  setInterval(function(){loadMovers(); loadHeatmap();}, 60000);
+  // refresh delayed market panels every 5 min (matches the server cache TTL,
+  // so an idle terminal doesn't keep draining the FMP daily allowance)
+  setInterval(function(){loadMovers(); loadHeatmap();}, 300000);
   // refresh the market news ticker every 5 min
   setInterval(loadNews, 300000);
 })();

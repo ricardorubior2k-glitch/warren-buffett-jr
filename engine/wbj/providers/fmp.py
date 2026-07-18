@@ -21,9 +21,15 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from wbj.providers.base import Provider
+from wbj.providers.base import Provider, TokenBucket
 
 BASE_URL = "https://financialmodelingprep.com/stable"
+
+# Pace FMP calls process-wide (shared across every FMPProvider instance) so a
+# concurrent workload — the screener scoring dozens of tickers, plus live
+# panels — doesn't burst past the plan's requests-per-minute allowance. ~4/s
+# (≈240/min) with a small burst; cache hits bypass this entirely.
+_FMP_RATE_BUCKET = TokenBucket(rate_per_sec=4.0, capacity=8.0)
 
 # max_age_days per cache key:
 #   ohlcv_daily/quote 1, analyst_estimates 7, statements 30,
@@ -50,6 +56,8 @@ def _years_ago(d: date, years: int) -> date:
 
 class FMPProvider(Provider):
     """Financial Modeling Prep data provider (/stable/ API)."""
+
+    rate_bucket = _FMP_RATE_BUCKET  # pace outbound FMP calls (see module note)
 
     @property
     def available(self) -> bool:
