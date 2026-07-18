@@ -9,7 +9,6 @@ on the reference screenshots in Referencias/.
 from __future__ import annotations
 
 import json
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -34,8 +33,11 @@ from wbj.providers.fmp import FMPProvider
 from wbj.targets import live_price, narrative, price_history, price_targets
 
 PORT = 8765
-_lock = threading.Lock()
 
+# Requests run concurrently (ThreadingHTTPServer, one thread per request).
+# No global serialization: httpx.Client is thread-safe and Cache writes are
+# atomic (see wbj.providers.cache), so a heavy request — e.g. the discovery
+# screener — no longer blocks the light market/quote panels behind it.
 settings = load_settings()
 _cache = Cache(settings.cache_dir)
 edgar = EdgarProvider(settings, _cache)
@@ -945,26 +947,22 @@ class Handler(BaseHTTPRequestHandler):
             self._json(search(qs.get("q", [""])[0]))
         elif url.path == "/api/screen":
             try:
-                with _lock:
-                    self._json(run_screen(limit=15))
+                self._json(run_screen(limit=15))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/movers":
             try:
-                with _lock:
-                    self._json(market.movers(fmp))
+                self._json(market.movers(fmp))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/heatmap":
             try:
-                with _lock:
-                    self._json(market.heatmap(fmp))
+                self._json(market.heatmap(fmp))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/macro":
             try:
-                with _lock:
-                    self._json(market.macro(fmp))
+                self._json(market.macro(fmp))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/quickscore":
@@ -973,8 +971,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "missing ticker"}, 400)
                 return
             try:
-                with _lock:
-                    self._json(quickscore(ticker))
+                self._json(quickscore(ticker))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/memoria":
@@ -984,8 +981,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/news":
             try:
-                with _lock:
-                    self._json(market.market_news(finnhub))
+                self._json(market.market_news(finnhub))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/news":
@@ -994,8 +990,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "missing ticker"}, 400)
                 return
             try:
-                with _lock:
-                    self._json(market.company_news(finnhub, ticker))
+                self._json(market.company_news(finnhub, ticker))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/analyze":
@@ -1004,9 +999,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "missing ticker"}, 400)
                 return
             try:
-                # One analysis at a time: providers share one httpx client/cache.
-                with _lock:
-                    result = analyze(ticker)
+                # Runs concurrently: _build_packet uses its own provider bundle,
+                # and cache writes are atomic (wbj.providers.cache).
+                result = analyze(ticker)
                 self._json(result)
             except Exception as e:  # surface as JSON, keep server alive
                 self._json({"error": str(e)}, 500)

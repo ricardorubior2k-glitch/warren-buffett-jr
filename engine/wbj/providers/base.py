@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -20,6 +21,14 @@ logger = logging.getLogger(__name__)
 _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 _REDACTED_PARAMS = frozenset({"apikey", "token", "api_key"})
+
+# The web app serves requests concurrently, so many provider calls can be in
+# flight at once (e.g. the discovery screener plus a live quote). Cap the
+# number of *simultaneous outbound HTTP calls* process-wide so bursts don't
+# trip data-provider rate limits (HTTP 429). This is a concurrency cap, not a
+# per-second token bucket — cache hits skip it entirely and stay instant.
+MAX_CONCURRENT_REQUESTS = 6
+_outbound = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
 
 
 def _redact_params(params: dict[str, Any] | None) -> dict[str, Any]:
@@ -85,7 +94,8 @@ class Provider:
         for attempt in range(_MAX_ATTEMPTS):
             is_last_attempt = attempt == _MAX_ATTEMPTS - 1
             try:
-                response = self.client.get(url, params=params, headers=headers)
+                with _outbound:  # cap simultaneous outbound calls (rate-limit guard)
+                    response = self.client.get(url, params=params, headers=headers)
             except httpx.TransportError as exc:
                 logger.warning(
                     "wbj provider request failed (attempt %d/%d) url=%s "

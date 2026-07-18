@@ -323,3 +323,49 @@ def test_get_json_does_not_log_token_value(tmp_path, caplog):
         p.get_json("https://x.test/a", {"token": "SUPERSECRET"}, "k", "NVDA")
 
     assert "SUPERSECRET" not in caplog.text
+
+
+# --- concurrency (thread-safe atomic writes) --------------------------------
+
+
+def test_cache_concurrent_writes_never_corrupt(tmp_path):
+    """Many threads writing+reading the same key must never yield a corrupt
+    (half-written) record, and no temp files must be left behind."""
+    import threading
+
+    c = Cache(tmp_path)
+    c.put("NVDA", "hot", {"n": 0})  # seed so readers always find a file
+    errors: list = []
+    values_seen: set = set()
+
+    def writer(n):
+        try:
+            for _ in range(40):
+                c.put("NVDA", "hot", {"n": n, "pad": "x" * 500})
+        except Exception as e:  # pragma: no cover - failure path
+            errors.append(("write", e))
+
+    def reader():
+        try:
+            for _ in range(80):
+                v = c.get("NVDA", "hot")
+                # never a partial parse: get() returns either a valid dict or None
+                if v is not None:
+                    values_seen.add(v["n"])
+        except Exception as e:  # a corrupt read would raise (e.g. KeyError)
+            errors.append(("read", e))
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(6)]
+    threads += [threading.Thread(target=reader) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"concurrent access raised: {errors}"
+    # the final record is one complete, valid write from some writer
+    final = c.get("NVDA", "hot")
+    assert final is not None and final["n"] in set(range(6)) | {0}
+    # no orphaned temp files left in the ticker directory
+    leftovers = list((tmp_path / "NVDA").glob("*.tmp"))
+    assert leftovers == [], f"orphaned temp files: {leftovers}"
