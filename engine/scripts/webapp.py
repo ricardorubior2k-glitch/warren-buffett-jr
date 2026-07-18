@@ -9,6 +9,7 @@ on the reference screenshots in Referencias/.
 from __future__ import annotations
 
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -48,6 +49,11 @@ finnhub = FinnhubProvider(settings, _cache)
 # /api/market/* feeds and /api/analyze. Served as a static file so the
 # markup stays out of this module.
 TERMINAL_HTML = (Path(__file__).parent / "terminal.html").read_text(encoding="utf-8")
+
+# Live SSE stream (Phase 4): symbols pushed to the terminal, and the tick
+# interval. FinnHub quotes drive it (a separate allowance from FMP).
+STREAM_SYMBOLS = ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META"]
+STREAM_INTERVAL_S = 5.0
 
 
 def ticker_map() -> list[dict]:
@@ -926,6 +932,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _sse_stream(self) -> None:
+        """Server-Sent Events: push a live quote tick every STREAM_INTERVAL_S.
+
+        Runs until the client disconnects (the browser's EventSource keeps one
+        connection open and auto-reconnects). Each ThreadingHTTPServer request
+        gets its own thread, so a long-lived stream doesn't block other panels.
+        """
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        seq = 0
+        try:
+            while True:
+                seq += 1
+                event = market.stream_event(finnhub, STREAM_SYMBOLS, seq)
+                self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
+                self.wfile.flush()
+                time.sleep(STREAM_INTERVAL_S)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return  # client went away — end the stream quietly
+
     def do_GET(self) -> None:  # noqa: N802 (stdlib API)
         url = urlparse(self.path)
         qs = parse_qs(url.query)
@@ -943,6 +972,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif url.path == "/api/stream":
+            self._sse_stream()
         elif url.path == "/api/search":
             self._json(search(qs.get("q", [""])[0]))
         elif url.path == "/api/screen":

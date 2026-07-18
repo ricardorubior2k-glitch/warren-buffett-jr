@@ -170,3 +170,26 @@ def company_news(finnhub, ticker: str, limit: int = 6,
         "ticker": ticker.upper(),
         "articles": _news_rows(finnhub.company_news(ticker, frm, today), limit),
     }
+
+
+def stream_event(finnhub, symbols: list[str], seq: int,
+                 now: datetime | None = None) -> dict:
+    """Build one live-stream tick: sequence, server time, and fresh quotes.
+
+    FinnHub's quote payload is `{c: current, dp: change%, pc: prev close, ...}`.
+    Symbols whose quote is unavailable (or has no price) are simply omitted —
+    the tick still carries its seq/timestamp so the client sees a live heartbeat.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    quotes = []
+    for sym in symbols:
+        q = finnhub.realtime_quote(sym)
+        if isinstance(q, dict) and q.get("c"):
+            quotes.append({
+                "symbol": sym.upper(),
+                "price": _num(q.get("c")),
+                "change_pct": _num(q.get("dp")),
+                "prev_close": _num(q.get("pc")),
+            })
+    return {"seq": seq, "ts": now.isoformat(), "quotes": quotes}

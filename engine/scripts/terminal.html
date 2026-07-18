@@ -105,6 +105,10 @@
   .dots i{width:7px; height:7px; border-radius:1px; display:block}
   .wl-score{width:30px; text-align:right; font-weight:700; margin-left:8px}
   .wl-head{cursor:default; color:var(--ink-dim); font-family:var(--sans); font-size:8.5px; letter-spacing:.1em}
+  @media(prefers-reduced-motion:no-preference){
+    .row.flash{animation:flashrow .7s ease-out}
+    @keyframes flashrow{0%{background:rgba(255,180,58,.22)}100%{background:transparent}}
+  }
   .mini-btn{background:var(--amber); color:#1a1205; border:0; border-radius:2px;
     font-family:var(--sans); font-size:8.5px; font-weight:700; letter-spacing:.1em; padding:3px 9px; cursor:pointer}
   .mini-btn:hover{filter:brightness(1.1)}
@@ -144,7 +148,7 @@
     <form class="cmd" id="cmdform"><span class="p">›</span>
       <input id="cmd" placeholder="Escribe un ticker y Enter — AAPL · NVDA · MSFT" autocomplete="off" spellcheck="false" aria-label="Ir a ticker">
       <span class="hint">GO&nbsp;→</span></form>
-    <div class="status"><span class="dot"></span><span>SEC EDGAR + FMP · <b>EN VIVO</b> · delayed</span></div>
+    <div class="status"><span class="dot"></span><span id="live-readout">conectando stream…</span></div>
   </div>
 
   <div class="grid">
@@ -264,6 +268,7 @@
     var el=document.getElementById("watch-rows"); el.innerHTML="";
     WATCHLIST.forEach(function(sym){
       var row=document.createElement("div"); row.className="row"; row.tabIndex=0;
+      row.dataset.symbol=sym;  // live-stream target
       row.innerHTML='<span class="sym">'+sym+'</span><span class="px" style="color:var(--ink-dim)">calculando…</span>';
       row.addEventListener("click",function(){select(sym);});
       el.appendChild(row);
@@ -374,6 +379,7 @@
   // ---------- detail (analyze) ----------
   async function select(sym){
     sym=String(sym||"").toUpperCase(); if(!sym) return;
+    currentSym=sym;  // so the live stream knows which detail price to update
     document.getElementById("d-title").textContent="DETALLE · "+sym;
     var el=document.getElementById("detail");
     el.innerHTML='<div class="loading">Analizando '+esc(sym)+' — leyendo SEC EDGAR + FMP…</div>';
@@ -505,8 +511,43 @@
   });
   document.getElementById("screenBtn").addEventListener("click",runScreen);
 
+  // ---------- live stream (SSE, Phase 4) ----------
+  var currentSym="AAPL";
+  function applyTick(q){
+    if(q.price==null) return;
+    var row=document.querySelector('#watch-rows .row[data-symbol="'+q.symbol+'"]');
+    if(row){
+      var px=row.querySelector('.px'); var ch=row.querySelector('.chg');
+      if(px){px.textContent=money(q.price); px.style.color='var(--ink-bright)';}
+      if(ch&&q.change_pct!=null){ch.textContent=fmtChg(q.change_pct); ch.style.color=rgb(chgCol(q.change_pct));}
+      row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash');
+    }
+    if(q.symbol===currentSym){
+      var dp=document.querySelector('#detail .d-price');
+      if(dp) dp.textContent=money(q.price);
+    }
+  }
+  function setLive(on, text){
+    var dot=document.querySelector('.status .dot'), lbl=document.getElementById('live-readout');
+    if(dot) dot.style.background = on?'var(--up)':'#697687';
+    if(lbl) lbl.textContent=text;
+  }
+  function connectStream(){
+    if(!window.EventSource){setLive(false,'stream no soportado'); return;}
+    var es=new EventSource('/api/stream');
+    es.onmessage=function(ev){
+      try{
+        var d=JSON.parse(ev.data), n=(d.quotes||[]).length;
+        d.quotes.forEach(applyTick);
+        setLive(true,'EN VIVO ● '+new Date().toLocaleTimeString('en-GB',{hour12:false})+' · '+n+' quotes');
+      }catch(e){}
+    };
+    es.onerror=function(){setLive(false,'reconectando stream…');};
+  }
+
   // init: market panels + scored watchlist + memoria + news + a default ticker
   loadMovers(); loadHeatmap(); loadMacro(); loadWatchlist(); loadMemoria(); loadNews(); select("AAPL");
+  connectStream();  // live price push
   // refresh delayed market panels every 5 min (matches the server cache TTL,
   // so an idle terminal doesn't keep draining the FMP daily allowance)
   setInterval(function(){loadMovers(); loadHeatmap();}, 300000);

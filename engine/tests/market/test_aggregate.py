@@ -8,9 +8,10 @@ from wbj.market import aggregate as agg
 class StubFinnhub:
     """Stand-in for FinnhubProvider returning canned news payloads."""
 
-    def __init__(self, general=None, company=None):
+    def __init__(self, general=None, company=None, quotes=None):
         self._general = general
         self._company = company
+        self._quotes = quotes or {}
         self.company_calls = []
 
     def general_news(self, category="general"):
@@ -19,6 +20,9 @@ class StubFinnhub:
     def company_news(self, t, frm, to):
         self.company_calls.append((t, frm, to))
         return self._company
+
+    def realtime_quote(self, t):
+        return self._quotes.get(t.upper())
 
 
 def _article(headline, ts, source="Reuters", url="http://x", related="AAPL"):
@@ -190,3 +194,30 @@ def test_company_news_uses_two_week_window_and_tags_ticker():
     # queried the 14-day window ending today
     t, frm, to = fh.company_calls[0]
     assert t == "aapl" and to == date(2026, 7, 17) and frm == date(2026, 7, 3)
+
+
+# --- live stream tick -------------------------------------------------------
+
+
+def test_stream_event_carries_seq_time_and_normalized_quotes():
+    from datetime import datetime, timezone
+
+    fh = StubFinnhub(quotes={
+        "AAPL": {"c": 333.74, "dp": 1.76, "pc": 327.5},
+        "NVDA": {"c": 202.81, "dp": 1.21, "pc": 200.4},
+    })
+    now = datetime(2026, 7, 18, 15, 0, tzinfo=timezone.utc)
+    ev = agg.stream_event(fh, ["aapl", "nvda"], seq=7, now=now)
+    assert ev["seq"] == 7
+    assert ev["ts"] == now.isoformat()
+    assert ev["quotes"] == [
+        {"symbol": "AAPL", "price": 333.74, "change_pct": 1.76, "prev_close": 327.5},
+        {"symbol": "NVDA", "price": 202.81, "change_pct": 1.21, "prev_close": 200.4},
+    ]
+
+
+def test_stream_event_omits_symbols_without_price_but_keeps_heartbeat():
+    fh = StubFinnhub(quotes={"AAPL": {"c": 0}, "NVDA": None})  # no usable price
+    ev = agg.stream_event(fh, ["AAPL", "NVDA"], seq=1)
+    assert ev["quotes"] == []          # nothing pushed
+    assert ev["seq"] == 1 and ev["ts"]  # but the tick still beats

@@ -30,6 +30,9 @@ _MAX_AGE_CALENDAR = 7
 _MAX_AGE_NEWS = 0.02
 # Market-wide (non per-ticker) data shares one cache namespace.
 _MARKET_NS = "_market"
+# Live-stream quotes: ~5s TTL so the SSE channel pushes fresh prices while a
+# burst of stream ticks still coalesces onto the cache.
+_MAX_AGE_LIVE_QUOTE = 5 / 86400.0
 
 
 class FinnhubProvider(Provider):
@@ -91,6 +94,18 @@ class FinnhubProvider(Provider):
             "quote",
             t,
             max_age_days=_MAX_AGE_QUOTE,
+        )
+
+    def realtime_quote(self, t: str) -> list | dict | None:
+        """Quote with a short (~5s) TTL, for the live SSE stream."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/quote",
+            self._params(symbol=t),
+            "live_quote",
+            t,
+            max_age_days=_MAX_AGE_LIVE_QUOTE,
         )
 
     def general_news(self, category: str = "general") -> list | dict | None:
