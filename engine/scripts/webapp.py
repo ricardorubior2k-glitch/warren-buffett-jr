@@ -11,10 +11,13 @@ from __future__ import annotations
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from wbj.cli import _build_packet, _compute
 from wbj.config import load_settings
+from wbj.memoria import load_predictions
+from wbj.quick import quick_scorecard
 from wbj.providers.cache import Cache
 from wbj.providers.edgar import (
     _EDGAR_HEADERS,
@@ -25,13 +28,22 @@ from wbj.providers.edgar import (
 )
 from wbj.screener import screen as run_screen
 from wbj.brief import company_brief
+from wbj.market import aggregate as market
+from wbj.providers.fmp import FMPProvider
 from wbj.targets import live_price, narrative, price_history, price_targets
 
 PORT = 8765
 _lock = threading.Lock()
 
 settings = load_settings()
-edgar = EdgarProvider(settings, Cache(settings.cache_dir))
+_cache = Cache(settings.cache_dir)
+edgar = EdgarProvider(settings, _cache)
+fmp = FMPProvider(settings, _cache)
+
+# Terminal UI (Phase 2): a dense multi-panel dashboard wired to the live
+# /api/market/* feeds and /api/analyze. Served as a static file so the
+# markup stays out of this module.
+TERMINAL_HTML = (Path(__file__).parent / "terminal.html").read_text(encoding="utf-8")
 
 
 def ticker_map() -> list[dict]:
@@ -74,6 +86,43 @@ def _history(packet: dict) -> list[dict]:
             "margin": (ni[end] / rev[end]) if end in ni and rev[end] else None,
         })
     return rows
+
+
+def quickscore(ticker: str) -> dict:
+    """Compact WBJ-scored row for a ticker: the 6-agent quick score plus a
+    delayed quote. Powers the terminal's scored watchlist (Phase 3).
+
+    Lighter than `analyze` — no narrative, brief, chart or saved prediction —
+    so a watchlist of several tickers fills in progressively.
+    """
+    packet = _build_packet(ticker)
+    sc = quick_scorecard(packet)
+    price = change = None
+    q = fmp.quote(ticker)
+    if isinstance(q, list) and q and isinstance(q[0], dict):
+        price = q[0].get("price")
+        change = q[0].get("changePercentage")
+    return {
+        "ticker": packet["ticker"],
+        "entity": packet["entity"],
+        "overall_10": sc["overall_10"],
+        "evidence": sc["evidence_points_covered"],
+        "price": price,
+        "change_pct": change,
+        "categories": [
+            {"key": c["key"], "label": c["label"], "status": c["status"],
+             "score10": c.get("score10")}
+            for c in sc["categories"]
+        ],
+    }
+
+
+def memoria_recent(limit: int = 8) -> list[dict]:
+    """Most recent saved analyses (predictions), newest first — the agent's
+    persistent research log, read from local files (no network)."""
+    preds = load_predictions(settings.reports_dir)
+    preds.sort(key=lambda r: r.get("date", ""), reverse=True)
+    return preds[:limit]
 
 
 def analyze(ticker: str) -> dict:
@@ -883,12 +932,52 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+        elif url.path == "/terminal":
+            body = TERMINAL_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         elif url.path == "/api/search":
             self._json(search(qs.get("q", [""])[0]))
         elif url.path == "/api/screen":
             try:
                 with _lock:
                     self._json(run_screen(limit=15))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/market/movers":
+            try:
+                with _lock:
+                    self._json(market.movers(fmp))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/market/heatmap":
+            try:
+                with _lock:
+                    self._json(market.heatmap(fmp))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/market/macro":
+            try:
+                with _lock:
+                    self._json(market.macro(fmp))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/quickscore":
+            ticker = qs.get("ticker", [""])[0].strip().upper()
+            if not ticker:
+                self._json({"error": "missing ticker"}, 400)
+                return
+            try:
+                with _lock:
+                    self._json(quickscore(ticker))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/memoria":
+            try:
+                self._json(memoria_recent())
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/analyze":

@@ -32,6 +32,12 @@ _MAX_AGE_OHLCV = 1
 _MAX_AGE_ESTIMATES = 7
 _MAX_AGE_STATEMENT = 30
 _MAX_AGE_REFERENCE = 7
+# Market-wide (delayed) data refreshes intraday: ~30 minutes.
+_MAX_AGE_MARKET = 0.02
+# Macro (treasury curve, indicators) moves daily.
+_MAX_AGE_MACRO = 1
+# Market-wide data is not per-ticker; it shares one cache namespace.
+_MARKET_NS = "_market"
 
 
 def _years_ago(d: date, years: int) -> date:
@@ -200,4 +206,76 @@ class FMPProvider(Provider):
             f"{BASE_URL}/earnings",
             self._params(symbol=t, limit=40),
             "earnings_calendar", t, max_age_days=_MAX_AGE_REFERENCE,
+        )
+
+    # --- market-wide (delayed) feeds --------------------------------------
+    # These power the terminal's market panels. They are not per-ticker, so
+    # they share the `_market` cache namespace and refresh intraday.
+
+    def biggest_gainers(self) -> list | dict | None:
+        """Day's biggest gainers across the market (delayed)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/biggest-gainers", self._params(),
+            "biggest_gainers", _MARKET_NS, max_age_days=_MAX_AGE_MARKET,
+        )
+
+    def biggest_losers(self) -> list | dict | None:
+        """Day's biggest losers across the market (delayed)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/biggest-losers", self._params(),
+            "biggest_losers", _MARKET_NS, max_age_days=_MAX_AGE_MARKET,
+        )
+
+    def most_actives(self) -> list | dict | None:
+        """Day's most active names by volume (delayed)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/most-actives", self._params(),
+            "most_actives", _MARKET_NS, max_age_days=_MAX_AGE_MARKET,
+        )
+
+    def quote(self, symbol: str) -> list | dict | None:
+        """Single-symbol quote (works for stocks and indexes, e.g. ^GSPC).
+
+        Batch-quote is plan-restricted on lower tiers, so callers that need
+        several symbols call this once per symbol.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/quote", self._params(symbol=symbol),
+            f"quote_{symbol}", _MARKET_NS, max_age_days=_MAX_AGE_MARKET,
+        )
+
+    def sector_snapshot(self, day: date) -> list | dict | None:
+        """Sector performance snapshot (average % change) for one date."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/sector-performance-snapshot",
+            self._params(date=day.isoformat()),
+            f"sector_{day.isoformat()}", _MARKET_NS, max_age_days=_MAX_AGE_MACRO,
+        )
+
+    def treasury_rates(self) -> list | dict | None:
+        """US Treasury yield curve, recent history (newest first)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/treasury-rates", self._params(),
+            "treasury_rates", _MARKET_NS, max_age_days=_MAX_AGE_MACRO,
+        )
+
+    def economic_indicator(self, name: str) -> list | dict | None:
+        """A named macro indicator series (e.g. GDP, CPI)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/economic-indicators", self._params(name=name),
+            f"econ_{name}", _MARKET_NS, max_age_days=_MAX_AGE_MACRO,
         )

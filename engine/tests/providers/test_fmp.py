@@ -358,3 +358,92 @@ def test_get_json_serves_from_cache_without_hitting_transport(tmp_path):
 
     result = p.profile("NVDA")
     assert result == _load_fixture("profile")
+
+
+# --- market-wide feeds (Phase 1) --------------------------------------------
+
+
+def _json_handler(payload, captured):
+    """Handler that records the request and replies with a fixed JSON payload."""
+
+    def handler(request):
+        captured["request"] = request
+        return httpx.Response(200, json=payload)
+
+    return handler
+
+
+def test_biggest_gainers_url_and_namespace(tmp_path):
+    captured = {}
+    rows = [{"symbol": "AAA", "changesPercentage": 5.0}]
+    p = _make_provider(tmp_path, _json_handler(rows, captured))
+
+    result = p.biggest_gainers()
+
+    req = captured["request"]
+    assert req.url.path == "/stable/biggest-gainers"
+    assert req.url.params.get("apikey") is not None
+    assert result == rows
+    # cached under the shared market namespace, not a ticker
+    assert p.cache.get("_market", "biggest_gainers") == rows
+
+
+def test_biggest_losers_and_most_actives_urls(tmp_path):
+    cap1, cap2 = {}, {}
+    p1 = _make_provider(tmp_path / "a", _json_handler([], cap1))
+    p1.biggest_losers()
+    assert cap1["request"].url.path == "/stable/biggest-losers"
+
+    p2 = _make_provider(tmp_path / "b", _json_handler([], cap2))
+    p2.most_actives()
+    assert cap2["request"].url.path == "/stable/most-actives"
+
+
+def test_quote_passes_symbol_including_index_caret(tmp_path):
+    captured = {}
+    p = _make_provider(tmp_path, _json_handler([{"symbol": "^GSPC"}], captured))
+
+    p.quote("^GSPC")
+
+    req = captured["request"]
+    assert req.url.path == "/stable/quote"
+    assert req.url.params.get("symbol") == "^GSPC"
+
+
+def test_sector_snapshot_uses_date_in_url_and_cache_key(tmp_path):
+    captured = {}
+    p = _make_provider(tmp_path, _json_handler([{"sector": "Energy"}], captured))
+
+    p.sector_snapshot(date(2026, 7, 16))
+
+    req = captured["request"]
+    assert req.url.path == "/stable/sector-performance-snapshot"
+    assert req.url.params.get("date") == "2026-07-16"
+    assert p.cache.get("_market", "sector_2026-07-16") == [{"sector": "Energy"}]
+
+
+def test_treasury_rates_and_economic_indicator_urls(tmp_path):
+    cap1, cap2 = {}, {}
+    p1 = _make_provider(tmp_path / "a", _json_handler([], cap1))
+    p1.treasury_rates()
+    assert cap1["request"].url.path == "/stable/treasury-rates"
+
+    p2 = _make_provider(tmp_path / "b", _json_handler([], cap2))
+    p2.economic_indicator("GDP")
+    assert cap2["request"].url.path == "/stable/economic-indicators"
+    assert cap2["request"].url.params.get("name") == "GDP"
+
+
+def test_market_methods_return_none_when_unavailable(tmp_path):
+    def handler(request):
+        raise AssertionError("transport should not be called when unavailable")
+
+    p = _make_provider(tmp_path, handler, fmp_api_key=None)
+
+    assert p.biggest_gainers() is None
+    assert p.biggest_losers() is None
+    assert p.most_actives() is None
+    assert p.quote("^GSPC") is None
+    assert p.sector_snapshot(date(2026, 7, 16)) is None
+    assert p.treasury_rates() is None
+    assert p.economic_indicator("GDP") is None

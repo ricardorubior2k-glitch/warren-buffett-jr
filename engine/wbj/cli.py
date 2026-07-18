@@ -8,10 +8,17 @@ the packet when an API key is configured, but is not required.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
 import typer
+
+# Windows consoles default stdout/stderr to the system codepage (e.g. cp1252),
+# which cannot encode the box-drawing/emoji characters this CLI prints.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 from wbj.config import load_settings
 from wbj.core.nullstates import EvidenceClass, NullState, Value
@@ -57,19 +64,28 @@ def _providers():
 
 
 def _annual_series(facts: dict, tags: list[str]) -> list[dict]:
-    """Extract annual (10-K FY) datapoints for the first tag that has data."""
+    """Extract annual (10-K FY) datapoints, merged across all given tags.
+
+    Companies migrate us-gaap concept tags over time (taxonomy drift — e.g.
+    NVIDIA reported under RevenueFromContractWithCustomerExcludingAssessedTax
+    through FY2022, then switched to Revenues from FY2023 onward). Stopping
+    at the first tag with *any* data silently truncates the series at the
+    migration point, so all tags are pooled and deduped by fiscal year end
+    instead, keeping the most recently filed datapoint per year.
+    """
     gaap = facts.get("facts", {}).get("us-gaap", {})
+    annual: list[dict] = []
     for tag in tags:
         units = gaap.get(tag, {}).get("units", {})
         rows = units.get("USD") or units.get("shares") or []
-        annual = [r for r in rows if r.get("form") == "10-K" and r.get("fp") == "FY"]
-        if annual:
-            # Deduplicate restatements: keep the latest filing per fiscal year end.
-            by_end: dict[str, dict] = {}
-            for r in sorted(annual, key=lambda r: r.get("filed", "")):
-                by_end[r["end"]] = r
-            return sorted(by_end.values(), key=lambda r: r["end"])
-    return []
+        annual.extend(r for r in rows if r.get("form") == "10-K" and r.get("fp") == "FY")
+    if not annual:
+        return []
+    # Deduplicate restatements/tag-overlap: keep the latest filing per fiscal year end.
+    by_end: dict[str, dict] = {}
+    for r in sorted(annual, key=lambda r: r.get("filed", "")):
+        by_end[r["end"]] = r
+    return sorted(by_end.values(), key=lambda r: r["end"])
 
 
 def _latest(series: list[dict]) -> float | None:
@@ -240,7 +256,7 @@ def packet(ticker: str) -> None:
     settings, _, _ = _providers()
     p = _build_packet(ticker)
     path = _out_dir(settings, ticker) / "packet.json"
-    path.write_text(json.dumps(p, indent=2))
+    path.write_text(json.dumps(p, indent=2), encoding="utf-8")
     typer.echo(f"packet -> {path}")
 
 
@@ -261,8 +277,8 @@ def analyze(ticker: str) -> None:
     result = _compute(p)
 
     out = _out_dir(settings, ticker)
-    (out / "packet.json").write_text(json.dumps(p, indent=2))
-    (out / "scores.json").write_text(json.dumps(result, indent=2))
+    (out / "packet.json").write_text(json.dumps(p, indent=2), encoding="utf-8")
+    (out / "scores.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     # Seed the agent's memory: persist today's prediction for `wbj track`.
     targets = price_targets(p, live_price(ticker, fmp_api_key=settings.fmp_api_key))
     if save_prediction(settings.reports_dir, ticker, date.today(),
@@ -293,7 +309,7 @@ def scorecard(ticker: str) -> None:
     p = _build_packet(ticker)
     sc = quick_scorecard(p)
     out = _out_dir(settings, ticker)
-    (out / "scorecard.json").write_text(json.dumps(sc, indent=2))
+    (out / "scorecard.json").write_text(json.dumps(sc, indent=2), encoding="utf-8")
 
     typer.echo(f"\n=== Quick Scorecard — {p['entity']} ({p['ticker']}) ===")
     for row in sc["categories"]:
@@ -327,6 +343,40 @@ def track() -> None:
         typer.echo(f"  {r['ticker']:<6} {r['date']}  {r['change']:+.1%} real "
                    f"vs {r['base_prorated']:+.1%} esperado  -> {r['outcome']}")
     typer.echo(f"\nReporte escrito en {memoria_dir / 'calibracion.md'}")
+
+
+@app.command()
+def market() -> None:
+    """Market snapshot: movers, sector heatmap and the yield curve."""
+    from wbj.market import aggregate as mkt
+
+    settings, _, fmp = _providers()
+    if not fmp.available:
+        typer.echo("Sin FMP API key — el snapshot de mercado necesita FMP. "
+                   "Configura API/.env (FMP_API_KEY=...).")
+        raise typer.Exit(code=1)
+
+    mv = mkt.movers(fmp, limit=6)
+    typer.echo("\n=== Movers (delayed) ===")
+    typer.echo("  ▲ Suben")
+    for r in mv["gainers"]:
+        typer.echo(f"    {r['symbol']:<6} ${r['price']:>9,.2f}  {r['change_pct']:+.2f}%")
+    typer.echo("  ▼ Bajan")
+    for r in mv["losers"]:
+        typer.echo(f"    {r['symbol']:<6} ${r['price']:>9,.2f}  {r['change_pct']:+.2f}%")
+
+    hm = mkt.heatmap(fmp)
+    typer.echo(f"\n=== Sectores ({hm['date'] or 's/d'}) ===")
+    for s in hm["sectors"]:
+        pct = s["change_pct"]
+        typer.echo(f"    {s['sector']:<24} {pct:+.2f}%" if pct is not None
+                   else f"    {s['sector']:<24} s/d")
+
+    mc = mkt.macro(fmp)
+    typer.echo(f"\n=== Curva de tasas ({mc['curve_date'] or 's/d'}) ===")
+    typer.echo("    " + "  ".join(f"{c['tenor']}:{c['rate']:.2f}" for c in mc["curve"]))
+    for name, ind in mc["indicators"].items():
+        typer.echo(f"    {name}: {ind['value']} ({ind['date']})")
 
 
 @app.command()
