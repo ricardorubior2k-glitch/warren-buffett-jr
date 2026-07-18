@@ -15,12 +15,15 @@ lower tiers (HTTP 402). A FinnHub-backed `news()` is a separate follow-up.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 # How many prior calendar days to walk back looking for a sector snapshot
 # (weekends/holidays have no EOD row).
 _SECTOR_LOOKBACK_DAYS = 6
+
+# Company-news lookback window.
+_NEWS_LOOKBACK_DAYS = 14
 
 # Yield-curve tenors in the FMP treasury-rates row, in maturity order.
 _TENORS = [
@@ -119,4 +122,51 @@ def macro(fmp, indicators: tuple[str, ...] = ("GDP",)) -> dict:
         "curve_date": curve["date"],
         "curve": curve["curve"],
         "indicators": out_ind,
+    }
+
+
+def _iso_ts(unix_seconds: Any) -> str | None:
+    """FinnHub gives article time as a unix timestamp; return an ISO string."""
+    try:
+        return datetime.fromtimestamp(int(unix_seconds), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _clean_article(row: dict) -> dict:
+    """Normalize one FinnHub article to the frontend contract."""
+    return {
+        "headline": row.get("headline"),
+        "source": row.get("source"),
+        "url": row.get("url"),
+        "datetime": _iso_ts(row.get("datetime")),
+        "ts": row.get("datetime") if isinstance(row.get("datetime"), (int, float)) else 0,
+        "related": row.get("related") or None,
+    }
+
+
+def _news_rows(payload: Any, limit: int) -> list[dict]:
+    """Clean, drop headline-less rows, sort newest-first, trim to `limit`."""
+    rows = [_clean_article(r) for r in _as_list(payload)]
+    rows = [r for r in rows if r["headline"] and r["url"]]
+    rows.sort(key=lambda r: r["ts"], reverse=True)
+    for r in rows:
+        r.pop("ts", None)
+    return rows[:limit]
+
+
+def market_news(finnhub, limit: int = 12) -> dict:
+    """Latest general market news (FinnHub — FMP's news is plan-restricted)."""
+    return {"articles": _news_rows(finnhub.general_news(), limit)}
+
+
+def company_news(finnhub, ticker: str, limit: int = 6,
+                 today: date | None = None) -> dict:
+    """Recent company-specific news for `ticker` (last two weeks)."""
+    if today is None:
+        today = date.today()
+    frm = today - timedelta(days=_NEWS_LOOKBACK_DAYS)
+    return {
+        "ticker": ticker.upper(),
+        "articles": _news_rows(finnhub.company_news(ticker, frm, today), limit),
     }

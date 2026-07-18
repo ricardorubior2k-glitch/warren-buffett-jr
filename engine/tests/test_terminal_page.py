@@ -23,6 +23,13 @@ def test_terminal_wires_the_phase3_score_backed_panels():
         assert endpoint in html, f"terminal.html does not call {endpoint}"
 
 
+def test_terminal_wires_the_finnhub_news_panels():
+    html = _TERMINAL.read_text(encoding="utf-8")
+    # market news ticker + per-company news in the detail panel
+    for endpoint in ("/api/market/news", "/api/news?ticker="):
+        assert endpoint in html, f"terminal.html does not call {endpoint}"
+
+
 def test_terminal_is_a_complete_document():
     html = _TERMINAL.read_text(encoding="utf-8")
     assert html.lstrip().lower().startswith("<!doctype html>")

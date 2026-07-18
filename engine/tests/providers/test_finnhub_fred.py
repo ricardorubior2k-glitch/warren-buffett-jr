@@ -1,6 +1,7 @@
 """Tests for wbj.providers.finnhub.FinnhubProvider and wbj.providers.fred.FredProvider."""
 
 import json
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -60,6 +61,45 @@ def test_finnhub_all_methods_return_none_and_skip_network_when_unavailable(tmp_p
     assert p.revenue_estimates("NVDA") is None
     assert p.earnings_calendar("NVDA") is None
     assert p.quote("NVDA") is None
+    assert p.general_news() is None
+    assert p.company_news("NVDA", date(2026, 7, 3), date(2026, 7, 17)) is None
+
+
+def _finnhub_json_handler(payload, captured):
+    def handler(request):
+        captured["request"] = request
+        return httpx.Response(200, json=payload)
+
+    return handler
+
+
+def test_finnhub_general_news_url_and_market_namespace(tmp_path):
+    captured = {}
+    rows = [{"headline": "Markets rally", "url": "http://x", "datetime": 1}]
+    p = _make_finnhub(tmp_path, _finnhub_json_handler(rows, captured))
+
+    result = p.general_news()
+
+    req = captured["request"]
+    assert req.url.path == "/api/v1/news"
+    assert req.url.params.get("category") == "general"
+    assert req.url.params.get("token") == "testkey"
+    assert result == rows
+    # cached under the shared market namespace, not a ticker
+    assert p.cache.get("_market", "news_general") == rows
+
+
+def test_finnhub_company_news_url_and_date_window(tmp_path):
+    captured = {}
+    p = _make_finnhub(tmp_path, _finnhub_json_handler([], captured))
+
+    p.company_news("AAPL", date(2026, 7, 3), date(2026, 7, 17))
+
+    req = captured["request"]
+    assert req.url.path == "/api/v1/company-news"
+    assert req.url.params.get("symbol") == "AAPL"
+    assert req.url.params.get("from") == "2026-07-03"
+    assert req.url.params.get("to") == "2026-07-17"
 
 
 def test_finnhub_estimates_url_and_params(tmp_path):

@@ -5,6 +5,27 @@ from datetime import date
 from wbj.market import aggregate as agg
 
 
+class StubFinnhub:
+    """Stand-in for FinnhubProvider returning canned news payloads."""
+
+    def __init__(self, general=None, company=None):
+        self._general = general
+        self._company = company
+        self.company_calls = []
+
+    def general_news(self, category="general"):
+        return self._general
+
+    def company_news(self, t, frm, to):
+        self.company_calls.append((t, frm, to))
+        return self._company
+
+
+def _article(headline, ts, source="Reuters", url="http://x", related="AAPL"):
+    return {"headline": headline, "datetime": ts, "source": source,
+            "url": url, "related": related, "summary": "…", "id": ts}
+
+
 class StubFMP:
     """Minimal stand-in for FMPProvider returning canned payloads.
 
@@ -127,3 +148,45 @@ def test_macro_builds_ordered_curve_from_newest_row():
 def test_macro_empty_curve_when_unavailable():
     out = agg.macro(StubFMP())
     assert out == {"curve_date": None, "curve": [], "indicators": {}}
+
+
+# --- news -------------------------------------------------------------------
+
+
+def test_market_news_normalizes_sorts_newest_first_and_trims():
+    fh = StubFinnhub(general=[
+        _article("Old story", 1_784_000_000),
+        _article("Newest story", 1_784_300_000),
+        _article("Middle story", 1_784_100_000),
+    ])
+    out = agg.market_news(fh, limit=2)
+    heads = [a["headline"] for a in out["articles"]]
+    assert heads == ["Newest story", "Middle story"]  # newest first, trimmed to 2
+    a = out["articles"][0]
+    assert a["source"] == "Reuters" and a["url"] == "http://x"
+    assert a["datetime"].startswith("2026-")  # unix ts -> ISO string
+    assert "ts" not in a  # internal sort key stripped
+
+
+def test_market_news_drops_articles_without_headline_or_url():
+    fh = StubFinnhub(general=[
+        {"headline": "", "url": "http://x", "datetime": 1},
+        {"headline": "No url", "url": "", "datetime": 2},
+        _article("Keep me", 3),
+    ])
+    out = agg.market_news(fh)
+    assert [a["headline"] for a in out["articles"]] == ["Keep me"]
+
+
+def test_market_news_empty_when_unavailable():
+    assert agg.market_news(StubFinnhub()) == {"articles": []}
+
+
+def test_company_news_uses_two_week_window_and_tags_ticker():
+    fh = StubFinnhub(company=[_article("Apple thing", 1_784_300_000)])
+    out = agg.company_news(fh, "aapl", limit=5, today=date(2026, 7, 17))
+    assert out["ticker"] == "AAPL"
+    assert out["articles"][0]["headline"] == "Apple thing"
+    # queried the 14-day window ending today
+    t, frm, to = fh.company_calls[0]
+    assert t == "aapl" and to == date(2026, 7, 17) and frm == date(2026, 7, 3)

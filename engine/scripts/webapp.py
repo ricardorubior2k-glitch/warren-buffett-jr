@@ -29,6 +29,7 @@ from wbj.providers.edgar import (
 from wbj.screener import screen as run_screen
 from wbj.brief import company_brief
 from wbj.market import aggregate as market
+from wbj.providers.finnhub import FinnhubProvider
 from wbj.providers.fmp import FMPProvider
 from wbj.targets import live_price, narrative, price_history, price_targets
 
@@ -39,6 +40,7 @@ settings = load_settings()
 _cache = Cache(settings.cache_dir)
 edgar = EdgarProvider(settings, _cache)
 fmp = FMPProvider(settings, _cache)
+finnhub = FinnhubProvider(settings, _cache)
 
 # Terminal UI (Phase 2): a dense multi-panel dashboard wired to the live
 # /api/market/* feeds and /api/analyze. Served as a static file so the
@@ -978,6 +980,22 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/memoria":
             try:
                 self._json(memoria_recent())
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/market/news":
+            try:
+                with _lock:
+                    self._json(market.market_news(finnhub))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/news":
+            ticker = qs.get("ticker", [""])[0].strip().upper()
+            if not ticker:
+                self._json({"error": "missing ticker"}, 400)
+                return
+            try:
+                with _lock:
+                    self._json(market.company_news(finnhub, ticker))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/analyze":

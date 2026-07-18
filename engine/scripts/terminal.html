@@ -114,6 +114,22 @@
   .rate{background:var(--panel-2); padding:5px 4px; text-align:center}
   .rate .rk{font-family:var(--sans); font-size:8px; color:var(--ink-dim)}
   .rate .rv{font-size:12px; color:var(--ink-bright); margin-top:2px}
+  .news-item{display:block; padding:5px 2px; border-bottom:1px solid var(--line-soft); cursor:pointer; text-decoration:none}
+  .news-item:last-child{border-bottom:0}
+  .news-item:hover .nh{color:var(--amber)}
+  .news-item .nh{font-family:var(--sans); font-size:10.5px; color:var(--ink); line-height:1.3}
+  .news-item .nm{font-family:var(--sans); font-size:8px; color:var(--ink-dim); letter-spacing:.04em; margin-top:2px}
+  .news-item .nm .src{color:var(--amber-dim)}
+  .newsbar{display:flex; align-items:stretch; margin-top:8px; background:var(--panel);
+    border:1px solid var(--line); border-radius:3px; overflow:hidden; height:30px}
+  .newsbar-label{flex-shrink:0; padding:0 12px; display:flex; align-items:center; gap:6px;
+    background:var(--amber); color:#1a1205; font-family:var(--sans); font-weight:800; font-size:9px; letter-spacing:.14em}
+  .newsbar-vp{flex:1; overflow:hidden; display:flex; align-items:center}
+  .newsbar-track{display:flex; gap:34px; white-space:nowrap; padding-left:20px}
+  @media(prefers-reduced-motion:no-preference){.newsbar-track.scroll{animation:marquee 90s linear infinite}}
+  @keyframes marquee{from{transform:translateX(0)} to{transform:translateX(-50%)}}
+  .news-a{font-family:var(--sans); font-size:10px; color:var(--ink); text-decoration:none}
+  .news-a:hover{color:var(--amber)} .news-a .src{color:var(--ink-dim); margin-left:6px}
   .foot{font-family:var(--sans); font-size:9px; color:var(--ink-dim); text-align:center; padding:10px 6px 4px}
   .foot b{color:var(--amber-dim)}
   .foot a{color:var(--amber-dim)}
@@ -176,8 +192,13 @@
     </section>
   </div>
 
+  <div class="newsbar">
+    <span class="newsbar-label">📰 NOTICIAS</span>
+    <div class="newsbar-vp"><div class="newsbar-track" id="newsTrack"><span class="news-a">cargando titulares…</span></div></div>
+  </div>
+
   <div class="foot">
-    Datos <b>en vivo</b> (delayed) vía SEC EDGAR + FMP · clasificación de research, no asesoría de inversión ·
+    Datos <b>en vivo</b> (delayed) vía SEC EDGAR + FMP + FinnHub · clasificación de research, no asesoría de inversión ·
     <a href="/">volver a la vista de tarjeta</a>
   </div>
 </div>
@@ -362,6 +383,7 @@
       requestAnimationFrame(function(){
         el.querySelectorAll(".fill[data-w]").forEach(function(f){f.style.width=f.dataset.w+"%";});
       });
+      loadCompanyNews(d.ticker);  // contextual headlines for this company
       loadMemoria();  // the analysis just saved a prediction — reflect it
     }catch(e){el.innerHTML='<div class="loading">No pude analizar '+esc(sym)+': '+esc(e.message)+'</div>';}
   }
@@ -415,7 +437,46 @@
           '<span class="track"></span><span class="n" style="color:var(--ink-dim); font-size:9px">N/S</span></div>';
       }
     });
-    return head+targets+scores;
+    var news='<div class="sect">Noticias · '+esc(d.ticker)+'</div>'+
+      '<div id="detail-news"><div class="loading" style="font-size:9px">cargando…</div></div>';
+    return head+targets+scores+news;
+  }
+
+  // ---------- company news (FinnHub) ----------
+  function timeAgo(iso){
+    if(!iso) return "";
+    var diff=(Date.now()-new Date(iso).getTime())/1000;
+    if(diff<3600) return Math.max(1,Math.round(diff/60))+"m";
+    if(diff<86400) return Math.round(diff/3600)+"h";
+    return Math.round(diff/86400)+"d";
+  }
+  async function loadCompanyNews(sym){
+    var el=document.getElementById("detail-news"); if(!el) return;
+    try{
+      var d=await getJSON("/api/news?ticker="+encodeURIComponent(sym));
+      if(!d.articles.length){el.innerHTML='<div class="loading" style="font-size:9px">Sin noticias recientes.</div>';return;}
+      el.innerHTML=d.articles.map(function(a){
+        return '<a class="news-item" href="'+esc(a.url)+'" target="_blank" rel="noopener noreferrer">'+
+          '<div class="nh">'+esc(a.headline)+'</div>'+
+          '<div class="nm"><span class="src">'+esc(a.source||"")+'</span> · '+timeAgo(a.datetime)+'</div></a>';
+      }).join("");
+    }catch(e){el.innerHTML='<div class="loading" style="font-size:9px">noticias no disponibles</div>';}
+  }
+
+  // ---------- market news ticker (FinnHub) ----------
+  async function loadNews(){
+    var track=document.getElementById("newsTrack");
+    try{
+      var d=await getJSON("/api/market/news");
+      if(!d.articles.length){track.innerHTML='<span class="news-a">sin titulares</span>'; return;}
+      var items=d.articles.map(function(a){
+        return '<a class="news-a" href="'+esc(a.url)+'" target="_blank" rel="noopener noreferrer">'+
+          esc(a.headline)+'<span class="src">'+esc(a.source||"")+'</span></a>';
+      }).join("");
+      // duplicate for a seamless marquee loop
+      track.innerHTML=items+items;
+      track.classList.add("scroll");
+    }catch(e){track.innerHTML='<span class="news-a">noticias no disponibles</span>';}
   }
 
   // ---------- clocks ----------
@@ -444,10 +505,12 @@
   });
   document.getElementById("screenBtn").addEventListener("click",runScreen);
 
-  // init: market panels + scored watchlist + memoria + a default ticker
-  loadMovers(); loadHeatmap(); loadMacro(); loadWatchlist(); loadMemoria(); select("AAPL");
+  // init: market panels + scored watchlist + memoria + news + a default ticker
+  loadMovers(); loadHeatmap(); loadMacro(); loadWatchlist(); loadMemoria(); loadNews(); select("AAPL");
   // refresh delayed market panels every 60s
   setInterval(function(){loadMovers(); loadHeatmap();}, 60000);
+  // refresh the market news ticker every 5 min
+  setInterval(loadNews, 300000);
 })();
 </script>
 </body></html>

@@ -14,6 +14,7 @@ already redacts `token` from logged request params.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from wbj.providers.base import Provider
@@ -25,6 +26,10 @@ BASE_URL = "https://finnhub.io/api/v1"
 _MAX_AGE_QUOTE = 1
 _MAX_AGE_ESTIMATES = 7
 _MAX_AGE_CALENDAR = 7
+# News refreshes intraday (~30 minutes).
+_MAX_AGE_NEWS = 0.02
+# Market-wide (non per-ticker) data shares one cache namespace.
+_MARKET_NS = "_market"
 
 
 class FinnhubProvider(Provider):
@@ -86,4 +91,28 @@ class FinnhubProvider(Provider):
             "quote",
             t,
             max_age_days=_MAX_AGE_QUOTE,
+        )
+
+    def general_news(self, category: str = "general") -> list | dict | None:
+        """Latest market news for a category (general, forex, crypto, merger)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/news",
+            self._params(category=category),
+            f"news_{category}",
+            _MARKET_NS,
+            max_age_days=_MAX_AGE_NEWS,
+        )
+
+    def company_news(self, t: str, frm: date, to: date) -> list | dict | None:
+        """Company-specific news between `frm` and `to` (inclusive)."""
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/company-news",
+            self._params(symbol=t, **{"from": frm.isoformat(), "to": to.isoformat()}),
+            "company_news",
+            t,
+            max_age_days=_MAX_AGE_NEWS,
         )
