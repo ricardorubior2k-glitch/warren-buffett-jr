@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+desktop = ["pywebview>=5"]  # native-window desktop app (scripts/desktop.py)
 
 [project.scripts]
 wbj = "wbj.cli:app"
