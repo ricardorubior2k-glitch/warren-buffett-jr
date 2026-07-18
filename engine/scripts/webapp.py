@@ -18,6 +18,8 @@ from wbj.cli import _build_packet, _compute
 from wbj.config import load_settings
 from wbj.memoria import load_predictions
 from wbj.quick import quick_scorecard
+from wbj.search import DEFAULT_LIMIT as SEARCH_LIMIT
+from wbj.search import rank as search_rank
 from wbj.providers.cache import Cache
 from wbj.providers.edgar import (
     _EDGAR_HEADERS,
@@ -66,22 +68,9 @@ def ticker_map() -> list[dict]:
     return [e for e in payload.values() if isinstance(e, dict)]
 
 
-def search(q: str, limit: int = 8) -> list[dict]:
-    q = q.strip().upper()
-    if not q:
-        return []
-    exact, prefix, name = [], [], []
-    for e in ticker_map():
-        t = str(e.get("ticker", "")).upper()
-        n = str(e.get("title", "")).upper()
-        row = {"ticker": t, "name": e.get("title", "")}
-        if t == q:
-            exact.append(row)
-        elif t.startswith(q):
-            prefix.append(row)
-        elif q in n:
-            name.append(row)
-    return (exact + prefix + name)[:limit]
+def search(q: str, limit: int = SEARCH_LIMIT) -> list[dict]:
+    """Company search: tier-ranked ticker + name matches (see wbj.search)."""
+    return search_rank(ticker_map(), q, limit)
 
 
 def _history(packet: dict) -> list[dict]:
@@ -194,7 +183,8 @@ PAGE = """<!doctype html>
     color:var(--ink); outline:none; box-shadow:0 1px 3px rgba(20,22,30,.07); }
   input:focus { border-color:var(--purple); }
   .sugg { position:absolute; top:calc(100% + 8px); left:0; right:0; z-index:5;
-    background:var(--card); border-radius:14px; overflow:hidden;
+    background:var(--card); border-radius:14px; overflow-x:hidden; overflow-y:auto;
+    max-height:min(56vh, 420px);
     box-shadow:0 12px 32px rgba(20,22,30,.16); display:none; }
   .sugg button { display:flex; gap:12px; width:100%; text-align:left; font:inherit;
     font-size:14px; padding:12px 18px; border:0; background:none; color:var(--ink);
