@@ -214,4 +214,15 @@ class Provider:
             if not is_last_attempt:
                 self._sleep(_BACKOFF_SECONDS[attempt])
 
+        # Network exhausted (429 rate-limit, 5xx, or transport error). Rather
+        # than blanking the panel, fall back to the last cached copy regardless
+        # of age — the terminal degrades to delayed real data instead of
+        # "sin datos". Common when a data provider's daily quota is reached.
+        stale = self.cache.get(ticker, cache_key)
+        if stale is not None:
+            logger.info(
+                "wbj serving stale cache after fetch failure url=%s params=%s",
+                url, safe_params,
+            )
+            return stale
         return None
