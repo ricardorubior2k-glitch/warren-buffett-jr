@@ -99,7 +99,7 @@ def movers_finnhub(
         now = datetime.now(timezone.utc)
     rows: list[dict] = []
     for sym in universe:
-        q = finnhub.realtime_quote(sym)
+        q = finnhub.panel_quote(sym)
         if not (isinstance(q, dict) and q.get("c") and q.get("pc")):
             continue
         c, pc = float(q["c"]), float(q["pc"])
@@ -249,7 +249,7 @@ def heatmap_finnhub(finnhub, now: datetime | None = None) -> dict:
         now = datetime.now(timezone.utc)
     sectors: list[dict] = []
     for etf, name in _SECTOR_ETFS:
-        q = finnhub.realtime_quote(etf)
+        q = finnhub.panel_quote(etf)
         if isinstance(q, dict) and q.get("dp") is not None:
             sectors.append({"sector": name, "change_pct": _num(q.get("dp"))})
     sectors.sort(key=lambda s: (s["change_pct"] is None, -(s["change_pct"] or 0)))

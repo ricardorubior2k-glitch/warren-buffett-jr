@@ -70,7 +70,10 @@ def load_pass2() -> dict:
 # Live SSE stream (Phase 4): symbols pushed to the terminal, and the tick
 # interval. FinnHub quotes drive it (a separate allowance from FMP).
 STREAM_SYMBOLS = ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META"]
-STREAM_INTERVAL_S = 5.0
+# 12s (not 5s): 6 symbols / 12s = 30 calls/min, leaving headroom under FinnHub's
+# free 60/min limit for the movers/heatmap panels. Delayed data doesn't need
+# sub-10s ticks; this stops the whole terminal from tripping FinnHub 429.
+STREAM_INTERVAL_S = 12.0
 
 
 def ticker_map() -> list[dict]:

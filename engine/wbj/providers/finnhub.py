@@ -33,6 +33,10 @@ _MARKET_NS = "_market"
 # Live-stream quotes: ~5s TTL so the SSE channel pushes fresh prices while a
 # burst of stream ticks still coalesces onto the cache.
 _MAX_AGE_LIVE_QUOTE = 5 / 86400.0
+# Market-panel quotes (movers/heatmap): ~1min TTL. These quote many symbols at
+# once; a longer TTL keeps them well under FinnHub's 60/min free limit while
+# still refreshing about once a minute.
+_MAX_AGE_PANEL_QUOTE = 60 / 86400.0
 
 
 class FinnhubProvider(Provider):
@@ -106,6 +110,23 @@ class FinnhubProvider(Provider):
             "live_quote",
             t,
             max_age_days=_MAX_AGE_LIVE_QUOTE,
+        )
+
+    def panel_quote(self, t: str) -> list | dict | None:
+        """Quote with a ~1min TTL, for the market panels (movers/heatmap).
+
+        Those panels quote many symbols at once; the longer TTL (vs.
+        realtime_quote) keeps the terminal under FinnHub's per-minute rate
+        limit while still refreshing about once a minute.
+        """
+        if not self.available:
+            return None
+        return self.get_json(
+            f"{BASE_URL}/quote",
+            self._params(symbol=t),
+            "panel_quote",
+            t,
+            max_age_days=_MAX_AGE_PANEL_QUOTE,
         )
 
     def general_news(self, category: str = "general") -> list | dict | None:
