@@ -353,7 +353,7 @@
     var el=document.getElementById("heat");
     try{
       var h=await getJSON("/api/market/heatmap");
-      if(h.date) document.getElementById("heat-date").textContent="FMP cache · "+h.date;
+      document.getElementById("heat-date").textContent=(h.source==="finnhub")?"FinnHub · en vivo":(h.date?"FMP cache · "+h.date:"% día");
       if(!h.sectors.length){el.innerHTML='<div class="loading">sin datos</div>';return;}
       el.innerHTML="";
       h.sectors.forEach(function(s){
@@ -371,7 +371,7 @@
   async function loadMacro(){
     try{
       var mc=await getJSON("/api/market/macro");
-      if(mc.curve_date) document.getElementById("macro-date").textContent="FMP cache · "+mc.curve_date;
+      if(mc.curve_date) document.getElementById("macro-date").textContent=(mc.source==="fred"?"FRED · ":"FMP cache · ")+mc.curve_date;
       var rg=document.getElementById("rates"); rg.innerHTML="";
       mc.curve.forEach(function(c){rg.insertAdjacentHTML("beforeend",
         '<div class="rate"><div class="rk">'+esc(c.tenor)+'</div><div class="rv">'+c.rate.toFixed(2)+'</div></div>');});

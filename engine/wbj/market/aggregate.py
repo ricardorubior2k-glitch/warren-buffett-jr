@@ -175,6 +175,90 @@ def macro(fmp, indicators: tuple[str, ...] = ("GDP",)) -> dict:
     }
 
 
+# --- FRED / FinnHub live re-wire (FMP market feeds are rate-limited) --------
+
+# Treasury constant-maturity series on FRED, in maturity order → yield curve.
+# FRED is the authoritative, always-live Treasury source.
+_FRED_TENORS = (
+    ("DGS1MO", "1M"), ("DGS3MO", "3M"), ("DGS6MO", "6M"),
+    ("DGS1", "1Y"), ("DGS2", "2Y"), ("DGS3", "3Y"), ("DGS5", "5Y"),
+    ("DGS7", "7Y"), ("DGS10", "10Y"), ("DGS20", "20Y"), ("DGS30", "30Y"),
+)
+_FRED_INDICATORS = {"GDP": "GDP"}
+
+# SPDR sector ETFs → live sector performance via FinnHub quotes.
+_SECTOR_ETFS = (
+    ("XLK", "Technology"), ("XLC", "Communication Services"),
+    ("XLY", "Consumer Discretionary"), ("XLP", "Consumer Staples"),
+    ("XLE", "Energy"), ("XLF", "Financials"), ("XLV", "Health Care"),
+    ("XLI", "Industrials"), ("XLB", "Materials"),
+    ("XLRE", "Real Estate"), ("XLU", "Utilities"),
+)
+
+
+def _fred_latest(fred, series_id: str) -> tuple:
+    """(date, rate) of the newest non-placeholder FRED obs, else (None, None)."""
+    payload = fred.series(series_id, limit=8)
+    if not isinstance(payload, dict):
+        return None, None
+    for obs in payload.get("observations") or []:
+        raw = obs.get("value")
+        if raw in (None, "."):
+            continue
+        r = _num(raw)
+        if r is not None:
+            return obs.get("date"), r
+    return None, None
+
+
+def macro_fred(fred, indicators: tuple = ("GDP",)) -> dict:
+    """Treasury yield curve from FRED (live) plus named macro indicators.
+
+    Same contract as `macro`, plus `source`/`live`. FRED is the authoritative
+    Treasury source and stays available when FMP is rate-limited.
+    """
+    curve: list[dict] = []
+    curve_date = None
+    for series_id, label in _FRED_TENORS:
+        d, rate = _fred_latest(fred, series_id)
+        if rate is not None:
+            curve.append({"tenor": label, "rate": rate})
+            if d and (curve_date is None or d > curve_date):
+                curve_date = d
+    out_ind: dict[str, dict] = {}
+    for name in indicators:
+        sid = _FRED_INDICATORS.get(name)
+        if not sid:
+            continue
+        d, val = _fred_latest(fred, sid)
+        if val is not None:
+            out_ind[name] = {"date": d, "value": val}
+    return {
+        "curve_date": curve_date, "curve": curve, "indicators": out_ind,
+        "source": "fred", "live": True,
+    }
+
+
+def heatmap_finnhub(finnhub, now: datetime | None = None) -> dict:
+    """Live sector heatmap from SPDR sector-ETF quotes (FinnHub).
+
+    Same contract as `heatmap`, plus `source`/`live`. Used when FMP's
+    sector-performance snapshot is rate-limited.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    sectors: list[dict] = []
+    for etf, name in _SECTOR_ETFS:
+        q = finnhub.realtime_quote(etf)
+        if isinstance(q, dict) and q.get("dp") is not None:
+            sectors.append({"sector": name, "change_pct": _num(q.get("dp"))})
+    sectors.sort(key=lambda s: (s["change_pct"] is None, -(s["change_pct"] or 0)))
+    return {
+        "date": now.date().isoformat(), "sectors": sectors,
+        "source": "finnhub", "live": True,
+    }
+
+
 def _iso_ts(unix_seconds: Any) -> str | None:
     """FinnHub gives article time as a unix timestamp; return an ISO string."""
     try:

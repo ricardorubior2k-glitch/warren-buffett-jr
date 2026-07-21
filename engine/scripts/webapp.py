@@ -33,6 +33,7 @@ from wbj.brief import company_brief
 from wbj.market import aggregate as market
 from wbj.providers.finnhub import FinnhubProvider
 from wbj.providers.fmp import FMPProvider
+from wbj.providers.fred import FredProvider
 from wbj.targets import live_price, narrative, price_history, price_targets
 
 PORT = 8765
@@ -46,6 +47,7 @@ _cache = Cache(settings.cache_dir)
 edgar = EdgarProvider(settings, _cache)
 fmp = FMPProvider(settings, _cache)
 finnhub = FinnhubProvider(settings, _cache)
+fred = FredProvider(settings, _cache)
 
 # Terminal UI (Phase 2): a dense multi-panel dashboard wired to the live
 # /api/market/* feeds and /api/analyze. Served as a static file so the
@@ -998,12 +1000,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/heatmap":
             try:
-                self._json(market.heatmap(fmp))
+                # Live sector performance from FinnHub sector-ETF quotes
+                # (FMP's sector-performance snapshot is rate-limited).
+                self._json(market.heatmap_finnhub(finnhub))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/macro":
             try:
-                self._json(market.macro(fmp))
+                # Treasury yield curve from FRED, the authoritative live source
+                # (FMP's treasury-rates is rate-limited).
+                self._json(market.macro_fred(fred))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/quickscore":
