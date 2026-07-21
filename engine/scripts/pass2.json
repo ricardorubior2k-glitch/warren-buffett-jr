@@ -1,0 +1,27 @@
+{
+  "as_of": "2026-07-19",
+  "shortlist": [
+    {"t": "SMWB", "g": 10.1, "acc": "no", "gn": "Enterprise crece, ritmo baja leve", "ins": "strong-buy", "inote": "7 compras mercado abierto Q2'26", "v": "pass"},
+    {"t": "LXRX", "g": 1572.1, "acc": "yes", "gn": "Ramp INPEFA desde base minima", "ins": "strong-buy", "inote": "8 compras mercado abierto Q1'26", "v": "pass"},
+    {"t": "VTEX", "g": 12.1, "acc": "yes", "gn": "Ecommerce LatAm acelera", "ins": "sell", "inote": "neto vendedor (23 ventas Q2)", "v": "watch"},
+    {"t": "MYGN", "g": 2.3, "acc": "yes", "gn": "Vuelve a crecer (oncologia)", "ins": "buy", "inote": "ratio 3x; compras abiertas", "v": "watch"},
+    {"t": "SPT", "g": 11.2, "acc": "no", "gn": "SaaS social desacelera", "ins": "sell", "inote": "neto vendedor 2026", "v": "watch"},
+    {"t": "AKBA", "g": -6.6, "acc": "no", "gn": "Comparable dificil", "ins": "buy", "inote": "acumulacion ratio 13x", "v": "drop"},
+    {"t": "GRPN", "g": 0.0, "acc": "no", "gn": "Ingresos planos ~$117M", "ins": "neutral", "inote": "solo grants", "v": "drop"},
+    {"t": "YEXT", "g": -1.4, "acc": "no", "gn": "Ingresos contraen (FY abr)", "ins": "buy", "inote": "compras abiertas ligeras", "v": "drop"},
+    {"t": "PD", "g": 1.0, "acc": "no", "gn": "Casi nulo, desacelera (FY abr)", "ins": "neutral", "inote": "grants; sin compras", "v": "drop"},
+    {"t": "GDRX", "g": -4.4, "acc": "no", "gn": "Rx core cae (-24%)", "ins": "sell", "inote": "sponsors FP/Silver Lake venden", "v": "drop"},
+    {"t": "MDXG", "g": -33.1, "acc": "no", "gn": "Shock reembolso Medicare", "ins": "neutral", "inote": "grants; sin compras >$1M", "v": "drop"},
+    {"t": "ABEO", "g": null, "acc": "n/d", "gn": "Lanzamiento ZEVASKYN desde cero", "ins": "sell", "inote": "neto vendedor 2026", "v": "nd"}
+  ],
+  "cards": [
+    {"tk": "MDXG", "name": "MiMedx Group", "px": "4.30", "total": "51.6", "conf": 59, "vc": "amber", "vlabel": "ESPECULATIVO", "vnote": "Watch - recalcular 31-jul",
+     "dims": [["Business", 5.85], ["Financial", 8.96], ["Market", 3.0], ["Technical", 3.80], ["Risk", 5.47], ["Valuation", 4.6]],
+     "bear": 2.15, "base": 4.20, "bull": 7.10, "price": 4.30,
+     "fit": "sleeve pequeno con stop - NO 30-60%", "inv": "cierre <$3.85 debilita - <$3.03 nuevo minimo"},
+    {"tk": "GDRX", "name": "GoodRx Holdings", "px": "3.14", "total": "49.6", "conf": 58, "vc": "red", "vlabel": "VALUE-TRAP?", "vnote": "Value watch - tecnico incompleto",
+     "dims": [["Business", 3.60], ["Financial", 5.6], ["Market", 5.25], ["Technical", null], ["Risk", 5.0], ["Valuation", 6.1]],
+     "bear": 1.56, "base": 3.73, "bull": 7.00, "price": 3.14,
+     "fit": "sleeve pequeno con stop - NO 30-60%", "inv": "cierre <$2.76 (SMA200) rompe soporte"}
+  ]
+}

@@ -52,6 +52,19 @@ finnhub = FinnhubProvider(settings, _cache)
 # markup stays out of this module.
 TERMINAL_HTML = (Path(__file__).parent / "terminal.html").read_text(encoding="utf-8")
 
+# 2nd-pass screener output (revenue growth + insider signal) plus the frozen
+# 6-agent verdict cards, served to the terminal's "Ruta 2030 v2.1" panel.
+# Read from disk at request time so a fresh screener run reflects immediately
+# without a server restart; falls back to an empty payload if not yet generated.
+_PASS2_PATH = Path(__file__).parent / "pass2.json"
+
+
+def load_pass2() -> dict:
+    if not _PASS2_PATH.exists():
+        return {"as_of": None, "shortlist": [], "cards": []}
+    return json.loads(_PASS2_PATH.read_text(encoding="utf-8"))
+
+
 # Live SSE stream (Phase 4): symbols pushed to the terminal, and the tick
 # interval. FinnHub quotes drive it (a separate allowance from FMP).
 STREAM_SYMBOLS = ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META"]
@@ -969,6 +982,11 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/screen":
             try:
                 self._json(run_screen(limit=15))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+        elif url.path == "/api/pass2":
+            try:
+                self._json(load_pass2())
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/movers":

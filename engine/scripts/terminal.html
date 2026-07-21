@@ -143,7 +143,7 @@
 <div class="wrap">
   <div class="topbar">
     <div class="brand"><span class="mark">🎩</span>
-      <div><b>WBJ&nbsp;TERMINAL</b><span>RUTA 2030 · v2.0.0</span></div></div>
+      <div><b>WBJ&nbsp;TERMINAL</b><span>RUTA 2030 · v2.1</span></div></div>
     <div class="clocks" id="clocks"></div>
     <form class="cmd" id="cmdform"><span class="p">›</span>
       <input id="cmd" placeholder="Escribe un ticker y Enter — AAPL · NVDA · MSFT" autocomplete="off" spellcheck="false" aria-label="Ir a ticker">
@@ -195,6 +195,25 @@
       <div class="pb"><div class="heat-grid" id="heat"><div class="loading">cargando…</div></div></div>
     </section>
   </div>
+
+  <section class="panel" style="margin-top:8px" id="v21-panel">
+    <div class="ph">
+      <span class="t">RUTA 2030 v2.1 · SCREENER + 2ª PASADA + ANÁLISIS PROFUNDO</span>
+      <span class="r" id="v21-src">crecimiento SEC + insiders Forms 4 · as-of jul-2026</span>
+    </div>
+    <div class="pb">
+      <div class="sub">2ª pasada — cumplen ambos filtros (crecimiento no-negativo + insiders sin venta neta): <b style="color:var(--up)" id="v21-pass">—</b></div>
+      <div class="row wl-head" style="cursor:default"><span class="sym">TICK</span><span style="width:70px;text-align:right">REV YoY</span><span style="flex:1;padding:0 8px">DRIVER</span><span style="font-family:var(--sans)">INSIDERS</span><span style="width:78px;text-align:right">2ª PASADA</span></div>
+      <div id="v21-p2"><div class="loading">…</div></div>
+      <div class="divline"></div>
+      <div class="sub">Verdict cards — análisis profundo (6 agentes congelados)</div>
+      <div id="v21-cards" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:10px"></div>
+      <div style="font-family:var(--sans); font-size:8.5px; color:var(--ink-dim); margin-top:10px; letter-spacing:.04em">
+        Compras en mercado abierto (Forms 4) pesan más que grants · ▲ acelera / ▼ desacelera · caveat LXRX +1572% = ramp desde base mínima ·
+        clasificación de research, no asesoría · fuente: SEC 10-Q + insider stats + agregación 6 especialistas.
+      </div>
+    </div>
+  </section>
 
   <div class="newsbar">
     <span class="newsbar-label">📰 NOTICIAS</span>
@@ -553,6 +572,110 @@
   setInterval(function(){loadMovers(); loadHeatmap();}, 300000);
   // refresh the market news ticker every 5 min
   setInterval(loadNews, 300000);
+})();
+</script>
+
+<script>
+/* RUTA 2030 v2.1 — panel aditivo (2ª pasada + análisis profundo). Datos estáticos, offline-safe. */
+(function(){
+  "use strict";
+  var RED=[255,91,106], AMB=[255,180,58], GRN=[61,220,132], DIM=[105,118,135];
+  function mix(a,b,t){return [Math.round(a[0]+(b[0]-a[0])*t),Math.round(a[1]+(b[1]-a[1])*t),Math.round(a[2]+(b[2]-a[2])*t)];}
+  function rgb(c,a){return "rgba("+c[0]+","+c[1]+","+c[2]+","+(a==null?1:a)+")";}
+  function scoreCol(s){return s<5?mix(RED,AMB,s/5):mix(AMB,GRN,(s-5)/5);}
+  function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+  function gcol(g){return g==null?DIM:(g>5?GRN:(g>=0?AMB:RED));}
+  function vcColor(v){return Array.isArray(v)?v:({amber:AMB,red:RED,green:GRN,dim:DIM}[v]||DIM);}
+
+  var P2=[
+   {t:"SMWB",g:10.1,acc:"no",gn:"Enterprise crece, ritmo baja leve",ins:"strong-buy",inote:"7 compras mercado abierto Q2'26",v:"pass"},
+   {t:"LXRX",g:1572.1,acc:"yes",gn:"Ramp INPEFA desde base mínima",ins:"strong-buy",inote:"8 compras mercado abierto Q1'26",v:"pass"},
+   {t:"VTEX",g:12.1,acc:"yes",gn:"Ecommerce LatAm acelera",ins:"sell",inote:"neto vendedor (23 ventas Q2)",v:"watch"},
+   {t:"MYGN",g:2.3,acc:"yes",gn:"Vuelve a crecer (oncología)",ins:"buy",inote:"ratio 3x; compras abiertas",v:"watch"},
+   {t:"SPT",g:11.2,acc:"no",gn:"SaaS social desacelera",ins:"sell",inote:"neto vendedor 2026",v:"watch"},
+   {t:"AKBA",g:-6.6,acc:"no",gn:"Comparable difícil",ins:"buy",inote:"acumulación ratio 13x",v:"drop"},
+   {t:"GRPN",g:0.0,acc:"no",gn:"Ingresos planos ~$117M",ins:"neutral",inote:"solo grants",v:"drop"},
+   {t:"YEXT",g:-1.4,acc:"no",gn:"Ingresos contraen (FY abr)",ins:"buy",inote:"compras abiertas ligeras",v:"drop"},
+   {t:"PD",g:1.0,acc:"no",gn:"Casi nulo, desacelera (FY abr)",ins:"neutral",inote:"grants; sin compras",v:"drop"},
+   {t:"GDRX",g:-4.4,acc:"no",gn:"Rx core cae (−24%)",ins:"sell",inote:"sponsors FP/Silver Lake venden",v:"drop"},
+   {t:"MDXG",g:-33.1,acc:"no",gn:"Shock reembolso Medicare",ins:"neutral",inote:"grants; sin compras >$1M",v:"drop"},
+   {t:"ABEO",g:null,acc:"n/d",gn:"Lanzamiento ZEVASKYN desde cero",ins:"sell",inote:"neto vendedor 2026",v:"nd"}
+  ];
+  var insMap={"strong-buy":["compra fuerte",GRN],"buy":["compra",AMB],"neutral":["neutral",DIM],"sell":["venta",RED]};
+  var vMap={pass:["✓ ambos",GRN],watch:["watch",AMB],drop:["descarta",RED],nd:["s/d",DIM]};
+
+  var CARDS=[
+   {tk:"MDXG",name:"MiMedx Group",px:"4.30",total:"51.6",conf:59,vc:AMB,vlabel:"ESPECULATIVO",vnote:"Watch · recalcular 31-jul",
+    dims:[["Business",5.85],["Financial",8.96],["Market",3.0],["Technical",3.80],["Risk",5.47],["Valuation",4.6]],
+    bear:2.15,base:4.20,bull:7.10,price:4.30,
+    fit:"sleeve pequeño con stop — NO 30-60%",inv:"cierre <$3.85 debilita · <$3.03 nuevo mínimo"},
+   {tk:"GDRX",name:"GoodRx Holdings",px:"3.14",total:"49.6",conf:58,vc:RED,vlabel:"VALUE-TRAP?",vnote:"Value watch · técnico incompleto",
+    dims:[["Business",3.60],["Financial",5.6],["Market",5.25],["Technical",null],["Risk",5.0],["Valuation",6.1]],
+    bear:1.56,base:3.73,bull:7.00,price:3.14,
+    fit:"sleeve pequeño con stop — NO 30-60%",inv:"cierre <$2.76 (SMA200) rompe soporte"}
+  ];
+
+  function renderP2(P2){
+    var pass=P2.filter(function(d){return d.v==="pass";}).map(function(d){return d.t;});
+    document.getElementById("v21-pass").textContent=pass.join(" · ")||"ninguna";
+    document.getElementById("v21-p2").innerHTML=P2.map(function(d){
+      var ins=insMap[d.ins], vd=vMap[d.v];
+      var acc=d.acc==="yes"?' <span style="color:'+rgb(GRN)+'">▲</span>':d.acc==="no"?' <span style="color:'+rgb(DIM)+'">▼</span>':'';
+      var g=d.g==null?"s/d":(d.g>0?"+":"")+d.g.toFixed(1)+"%";
+      return '<div class="row" style="cursor:default"><span class="sym">'+esc(d.t)+'</span>'+
+        '<span style="width:70px;text-align:right;color:'+rgb(gcol(d.g))+';font-weight:600">'+g+acc+'</span>'+
+        '<span style="flex:1;min-width:0;font-family:var(--sans);font-size:9px;color:var(--ink-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px" title="'+esc(d.inote)+'">'+esc(d.gn)+'</span>'+
+        '<span style="font-family:var(--sans);font-size:8.5px;padding:2px 7px;border-radius:2px;background:'+rgb(ins[1],.16)+';color:'+rgb(ins[1])+'">'+ins[0]+'</span>'+
+        '<span style="width:78px;text-align:right;font-family:var(--sans);font-size:9px;color:'+rgb(vd[1])+'">'+vd[0]+'</span></div>';
+    }).join("");
+  }
+
+  function bar(label,s){
+    if(s==null) return '<div class="score"><span class="lbl">'+esc(label)+'</span><span class="track"></span><span class="n" style="color:var(--ink-dim);font-size:9px">N/S</span></div>';
+    var col=scoreCol(s);
+    return '<div class="score"><span class="lbl">'+esc(label)+'</span>'+
+      '<span class="track"><span class="fill" style="width:'+(s*10)+'%;background:'+rgb(col)+'"></span></span>'+
+      '<span class="n" style="color:'+rgb(col)+'">'+s.toFixed(1)+'</span></div>';
+  }
+  function tbar(bear,base,bull,price){
+    var lo=bear, hi=bull, rg=(hi-lo)||1;
+    function pos(x){return 6+((x-lo)/rg)*88;}
+    function node(v,lab,col){return '<div class="tnode" style="left:'+pos(v)+'%"><div class="tdot" style="background:'+rgb(col)+'"></div>'+
+      '<div class="tcap"><b>$'+v.toFixed(2)+'</b>'+lab+'</div></div>';}
+    return '<div class="tbar"><div class="tline"></div>'+node(bear,"bear",RED)+node(base,"base",AMB)+node(bull,"bull",GRN)+
+      '<div class="tnow" style="left:'+pos(price)+'%"><div class="flag">HOY $'+price.toFixed(2)+'</div><div class="stem"></div></div></div>';
+  }
+  function renderCards(CARDS){
+    document.getElementById("v21-cards").innerHTML=CARDS.map(function(c){
+      var vcc=vcColor(c.vc);
+      return '<div style="border:1px solid var(--line);border-radius:3px;padding:8px 10px;min-width:0">'+
+        '<div class="d-head"><div><div class="d-name">'+esc(c.name)+'</div><div class="d-sym" style="font-size:18px">'+esc(c.tk)+'</div>'+
+        '<div class="d-chg" style="font-family:var(--sans);color:var(--ink-dim)">$'+esc(c.px)+' · Total '+esc(c.total)+'/100 · conf '+c.conf+'</div></div>'+
+        '<div style="text-align:center"><div class="verdict" style="background:'+rgb(vcc,.16)+';color:'+rgb(vcc)+';border:1px solid '+rgb(vcc,.5)+'">'+esc(c.vlabel)+'</div>'+
+        '<div class="v-note">'+esc(c.vnote)+'</div></div></div>'+
+        '<div class="sect">6 agentes · 1–10</div>'+
+        c.dims.map(function(d){return bar(d[0],d[1]);}).join("")+
+        '<div class="sect">Escenarios de valuación · rangos con supuestos</div>'+
+        tbar(c.bear,c.base,c.bull,c.price)+
+        '<div style="font-family:var(--sans);font-size:9px;color:var(--ink-dim);line-height:1.5">'+
+        '<b style="color:var(--amber-dim)">Fit Victor:</b> '+esc(c.fit)+'<br><b style="color:var(--amber-dim)">Invalida:</b> '+esc(c.inv)+'</div>'+
+      '</div>';
+    }).join("");
+  }
+  function paint(data){
+    var rows=(data&&data.shortlist&&data.shortlist.length)?data.shortlist:P2;
+    var cards=(data&&data.cards&&data.cards.length)?data.cards:CARDS;
+    renderP2(rows); renderCards(cards);
+    var src=document.getElementById("v21-src");
+    if(src&&data&&data.as_of) src.textContent="crecimiento SEC + insiders Forms 4 · as-of "+data.as_of+" · /api/pass2 (live)";
+  }
+  // Regenerated each screener run: fetch the live pass2 payload; fall back to
+  // the embedded snapshot when opened as a static file (no server).
+  if(window.fetch){
+    fetch("/api/pass2").then(function(r){return r.ok?r.json():null;})
+      .then(function(d){paint(d&&!d.error?d:null);})
+      .catch(function(){paint(null);});
+  }else{paint(null);}
 })();
 </script>
 </body></html>
