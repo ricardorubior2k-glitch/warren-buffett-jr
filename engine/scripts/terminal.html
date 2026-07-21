@@ -153,7 +153,7 @@
 
   <div class="grid">
     <section class="panel m-movers">
-      <div class="ph"><span class="t">MOVERS · HOY</span><span class="r">FMP delayed</span></div>
+      <div class="ph"><span class="t">MOVERS · HOY</span><span class="r" id="movers-src">FinnHub</span></div>
       <div class="pb">
         <div class="sub">▲ Suben</div><div id="gainers"><div class="loading">cargando…</div></div>
         <div class="divline"></div>
@@ -254,11 +254,20 @@
     if(!arr||!arr.length){el.innerHTML='<div class="loading">sin datos</div>';return;}
     arr.slice(0,limit).forEach(function(r){el.appendChild(moverRow(r));});
   }
+  function fmtTime(iso){
+    try{ return new Date(iso).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"}); }
+    catch(e){ return ""; }
+  }
   async function loadMovers(){
     try{
       var m=await getJSON("/api/market/movers");
       fillRows(document.getElementById("gainers"),m.gainers,7);
       fillRows(document.getElementById("losers"),m.losers,7);
+      var src=document.getElementById("movers-src");
+      if(src){
+        var lbl=(m.source==="finnhub")?"FinnHub":"FMP";
+        src.textContent=lbl+(m.live?" · en vivo ":" · cache ")+(m.as_of?fmtTime(m.as_of):"");
+      }
     }catch(e){
       document.getElementById("gainers").innerHTML='<div class="loading">error: '+esc(e.message)+'</div>';
     }
@@ -344,7 +353,7 @@
     var el=document.getElementById("heat");
     try{
       var h=await getJSON("/api/market/heatmap");
-      if(h.date) document.getElementById("heat-date").textContent=h.date+" · % día";
+      if(h.date) document.getElementById("heat-date").textContent="FMP cache · "+h.date;
       if(!h.sectors.length){el.innerHTML='<div class="loading">sin datos</div>';return;}
       el.innerHTML="";
       h.sectors.forEach(function(s){
@@ -362,7 +371,7 @@
   async function loadMacro(){
     try{
       var mc=await getJSON("/api/market/macro");
-      if(mc.curve_date) document.getElementById("macro-date").textContent=mc.curve_date;
+      if(mc.curve_date) document.getElementById("macro-date").textContent="FMP cache · "+mc.curve_date;
       var rg=document.getElementById("rates"); rg.innerHTML="";
       mc.curve.forEach(function(c){rg.insertAdjacentHTML("beforeend",
         '<div class="rate"><div class="rk">'+esc(c.tenor)+'</div><div class="rv">'+c.rate.toFixed(2)+'</div></div>');});

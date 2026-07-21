@@ -991,7 +991,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/movers":
             try:
-                self._json(market.movers(fmp))
+                # Movers computed live from FinnHub quotes (FMP's market-wide
+                # gainers/losers is rate-limited/plan-restricted). Live + as_of.
+                self._json(market.movers_finnhub(finnhub))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/market/heatmap":

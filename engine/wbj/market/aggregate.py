@@ -74,6 +74,56 @@ def movers(fmp, limit: int = 8) -> dict:
     }
 
 
+# Curated liquid universe for FinnHub-computed movers. FinnHub has no
+# market-wide gainers/losers endpoint, so we quote these names live and rank by
+# % change — used when FMP's market-wide movers is rate-limited/plan-restricted.
+MOVERS_UNIVERSE = (
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AMD", "NFLX",
+    "AVGO", "JPM", "XOM", "WMT", "COST", "DIS", "INTC", "CRM", "ORCL", "ADBE",
+    "PLTR", "COIN", "UBER", "MU", "QCOM",
+)
+
+
+def movers_finnhub(
+    finnhub, universe: tuple[str, ...] = MOVERS_UNIVERSE,
+    limit: int = 8, now: datetime | None = None,
+) -> dict:
+    """Top movers computed LIVE from FinnHub quotes over a curated universe.
+
+    FinnHub exposes no market-wide movers feed, so we quote a liquid set and
+    rank by % change. Returns the same gainers/losers/actives contract as
+    `movers`, plus `source` and an ISO `as_of` timestamp so the terminal can
+    label the panel as live (vs. FMP's cached fallback).
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    rows: list[dict] = []
+    for sym in universe:
+        q = finnhub.realtime_quote(sym)
+        if not (isinstance(q, dict) and q.get("c") and q.get("pc")):
+            continue
+        c, pc = float(q["c"]), float(q["pc"])
+        rows.append({
+            "symbol": sym,
+            "name": None,
+            "price": _num(c),
+            "change": _num(c - pc),
+            "change_pct": _num(q.get("dp")),
+        })
+    rows = [r for r in rows if r["change_pct"] is not None]
+    gainers = sorted(rows, key=lambda r: r["change_pct"], reverse=True)[:limit]
+    losers = sorted(rows, key=lambda r: r["change_pct"])[:limit]
+    actives = sorted(rows, key=lambda r: abs(r["change_pct"] or 0), reverse=True)[:limit]
+    return {
+        "gainers": gainers,
+        "losers": losers,
+        "actives": actives,
+        "source": "finnhub",
+        "as_of": now.isoformat(),
+        "live": True,
+    }
+
+
 def heatmap(fmp, today: date | None = None) -> dict:
     """Sector performance heatmap (average % change per sector).
 
