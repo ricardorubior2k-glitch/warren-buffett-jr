@@ -1061,4 +1061,14 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"WBJ web app -> http://localhost:{PORT}")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    # Bind first (the socket starts listening in the constructor), then open the
+    # browser to the terminal — so the page loads exactly when the server is
+    # ready, and the browser launcher doesn't have to time it.
+    _server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    try:
+        import webbrowser
+        webbrowser.open(f"http://localhost:{PORT}/terminal")
+    except Exception:
+        pass
+    print(f"WBJ Terminal abierto en el navegador -> http://localhost:{PORT}/terminal")
+    _server.serve_forever()
