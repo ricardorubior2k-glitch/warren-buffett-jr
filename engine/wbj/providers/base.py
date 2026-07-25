@@ -22,6 +22,49 @@ _MAX_ATTEMPTS = 3
 _BACKOFF_SECONDS = (0.5, 1.0, 2.0)
 _REDACTED_PARAMS = frozenset({"apikey", "token", "api_key"})
 
+# --- Per-host circuit breaker ----------------------------------------------
+# When a provider's daily quota is exhausted, every call returns HTTP 429 and
+# burns its full retry/backoff budget (~1.5s of sleeps + round-trips) before
+# falling back to cache. Across the discovery screener (up to 40 candidates x
+# ~6 provider endpoints each) that is *minutes* of pure waiting on a provider
+# that is already known to be down. The breaker trips after a few consecutive
+# network-exhaustion events for a given host and, while open, skips the network
+# entirely — returning the SAME cache fallback the retry path would have
+# returned anyway, just instantly. It NEVER changes which data is returned
+# (identical fallback), only how long the caller waits. State is process-wide
+# and keyed by host, so an exhausted FMP never blackholes EDGAR/FinnHub/FRED.
+_BREAKER_THRESHOLD = 3       # consecutive exhaustion events before opening
+_BREAKER_COOLDOWN = 120.0    # seconds to stay open before a half-open re-probe
+_breaker_lock = threading.Lock()
+_breaker_state: dict[str, dict[str, float]] = {}  # host -> {fails, open_until}
+
+
+def _breaker_is_open(host: str) -> bool:
+    """True if `host` recently exhausted repeatedly and is still cooling down.
+
+    Once the cooldown elapses this returns False again (half-open): the next
+    call is allowed through to re-probe the provider, and a success closes it.
+    """
+    with _breaker_lock:
+        st = _breaker_state.get(host)
+        return bool(st and st["open_until"] and time.monotonic() < st["open_until"])
+
+
+def _breaker_record_failure(host: str) -> None:
+    """Count one network-exhaustion for `host`; open the breaker at threshold."""
+    with _breaker_lock:
+        st = _breaker_state.setdefault(host, {"fails": 0.0, "open_until": 0.0})
+        st["fails"] += 1
+        if st["fails"] >= _BREAKER_THRESHOLD:
+            st["open_until"] = time.monotonic() + _BREAKER_COOLDOWN
+
+
+def _breaker_record_success(host: str) -> None:
+    """A successful response closes the breaker for `host`."""
+    with _breaker_lock:
+        if host in _breaker_state:
+            _breaker_state[host] = {"fails": 0.0, "open_until": 0.0}
+
 # The web app serves requests concurrently, so many provider calls can be in
 # flight at once (e.g. the discovery screener plus a live quote). Cap the
 # number of *simultaneous outbound HTTP calls* process-wide so bursts don't
@@ -140,6 +183,18 @@ class Provider:
             return self.cache.get(ticker, cache_key)
 
         safe_params = _redact_params(params)
+        host = httpx.URL(url).host
+
+        # Circuit breaker: this host recently exhausted repeatedly (e.g. a
+        # provider's daily quota is spent). Skip the network and serve the same
+        # cache fallback we would reach after burning the full retry budget —
+        # identical result, but instantly instead of ~1.5s of dead waiting.
+        if _breaker_is_open(host):
+            logger.info(
+                "wbj circuit-breaker open host=%s — skipping network, serving "
+                "cache url=%s params=%s", host, url, safe_params,
+            )
+            return self._serve_stale(ticker, cache_key, url, safe_params)
 
         for attempt in range(_MAX_ATTEMPTS):
             is_last_attempt = attempt == _MAX_ATTEMPTS - 1
@@ -175,6 +230,7 @@ class Provider:
                     )
                     return None
                 self.cache.put(ticker, cache_key, payload)
+                _breaker_record_success(host)
                 return payload
 
             if response.status_code == 429:
@@ -214,10 +270,21 @@ class Provider:
             if not is_last_attempt:
                 self._sleep(_BACKOFF_SECONDS[attempt])
 
-        # Network exhausted (429 rate-limit, 5xx, or transport error). Rather
-        # than blanking the panel, fall back to the last cached copy regardless
-        # of age — the terminal degrades to delayed real data instead of
-        # "sin datos". Common when a data provider's daily quota is reached.
+        # Network exhausted (429 rate-limit, 5xx, or transport error). Record it
+        # for the breaker so a persistently-down host stops burning retry budget
+        # on later calls, then fall back to cache (below).
+        _breaker_record_failure(host)
+        return self._serve_stale(ticker, cache_key, url, safe_params)
+
+    def _serve_stale(
+        self, ticker: str, cache_key: str, url: str, safe_params: dict[str, Any]
+    ) -> dict | None:
+        """Return the last cached copy regardless of age, or None.
+
+        Reached when the network is exhausted or the breaker is open. Rather
+        than blanking the panel, the terminal degrades to delayed real data
+        instead of "sin datos" — common when a provider's daily quota is spent.
+        """
         stale = self.cache.get(ticker, cache_key)
         if stale is not None:
             logger.info(
