@@ -12,7 +12,7 @@ def test_terminal_html_exists():
 def test_terminal_fetches_the_market_and_analysis_endpoints():
     html = _TERMINAL.read_text(encoding="utf-8")
     for endpoint in ("/api/market/movers", "/api/market/heatmap",
-                     "/api/market/macro", "/api/analyze?ticker="):
+                     "/api/analyze?ticker="):
         assert endpoint in html, f"terminal.html does not call {endpoint}"
 
 

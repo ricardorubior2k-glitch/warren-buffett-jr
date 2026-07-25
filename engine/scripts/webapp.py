@@ -986,7 +986,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(search(qs.get("q", [""])[0]))
         elif url.path == "/api/screen":
             try:
-                self._json(run_screen(limit=15))
+                self._json(run_screen(limit=20))
             except Exception as e:
                 self._json({"error": str(e)}, 500)
         elif url.path == "/api/pass2":
