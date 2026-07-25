@@ -45,11 +45,11 @@
     @keyframes pulse{50%{opacity:.35}}
   }
   .grid{display:grid; gap:8px; grid-template-columns:300px minmax(0,1fr) 322px;
-    grid-template-areas:"movers detail watch" "movers detail watch" "movers news watch" "heat heat heat";}
+    grid-template-areas:"movers detail watch" "movers detail watch" "movers detail watch" "heat heat heat";}
   @media(max-width:1080px){.grid{grid-template-columns:1fr 1fr;
-    grid-template-areas:"movers watch" "detail detail" "news news" "heat heat";}}
+    grid-template-areas:"movers watch" "detail detail" "heat heat";}}
   @media(max-width:680px){.grid{grid-template-columns:1fr;
-    grid-template-areas:"detail" "movers" "watch" "heat" "news";}}
+    grid-template-areas:"detail" "movers" "watch" "heat";}}
   .panel{background:var(--panel); border:1px solid var(--line); border-radius:3px;
     display:flex; flex-direction:column; min-width:0; overflow:hidden}
   .ph{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:6px 10px;
@@ -58,7 +58,7 @@
   .ph .r{font-family:var(--sans); font-size:8.5px; letter-spacing:.1em; color:var(--ink-dim)}
   .pb{padding:8px 10px; overflow:auto}
   .m-movers{grid-area:movers} .m-detail{grid-area:detail} .m-watch{grid-area:watch}
-  .m-news{grid-area:news} .m-heat{grid-area:heat}
+  .m-heat{grid-area:heat}
   .row{display:flex; align-items:center; gap:8px; padding:4px; border-radius:2px; cursor:pointer}
   .row:hover{background:#141d2a}
   .row .sym{width:56px; color:var(--ink-bright); font-weight:600; overflow:hidden; text-overflow:ellipsis}
@@ -178,11 +178,6 @@
       </div>
     </section>
 
-    <section class="panel m-news">
-      <div class="ph"><span class="t">DESCUBRIMIENTO WBJ</span><button class="mini-btn" id="screenBtn">▶ ESCANEAR</button></div>
-      <div class="pb" id="screen-body"><div class="loading">Empresas medianas, rentables y en crecimiento, rankeadas por score WBJ. Pulsa Escanear (tarda 1–2 min la primera vez).</div></div>
-    </section>
-
     <section class="panel m-heat">
       <div class="ph"><span class="t">MAPA DE CALOR · SECTORES</span><span class="r" id="heat-date">% del día</span></div>
       <div class="pb"><div class="heat-grid" id="heat"><div class="loading">cargando…</div></div></div>
@@ -293,28 +288,6 @@
         .then(function(d){renderScored(row,d);})
         .catch(function(){row.querySelector(".px").textContent="s/d";});
     });
-  }
-
-  // ---------- discovery screener (on demand — scans SEC universe) ----------
-  async function runScreen(){
-    var el=document.getElementById("screen-body"), btn=document.getElementById("screenBtn");
-    btn.disabled=true; el.innerHTML='<div class="loading">Escaneando universo SEC… (1–2 min la primera vez)</div>';
-    try{
-      var rows=await getJSON("/api/screen");
-      if(!rows.length){el.innerHTML='<div class="loading">sin resultados</div>';return;}
-      el.innerHTML="";
-      rows.slice(0,12).forEach(function(r){
-        var col=scoreCol(r.score10), up=r.upside_base;
-        var d=document.createElement("div"); d.className="row"; d.tabIndex=0;
-        d.innerHTML='<span class="sym">'+esc(r.ticker)+'</span>'+
-          '<span style="flex:1; min-width:0; font-family:var(--sans); font-size:9px; color:var(--ink-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap">'+esc(r.name)+'</span>'+
-          (up!=null?'<span class="chg" style="color:'+rgb(chgCol(up))+'">'+(up>=0?"+":"")+(up*100).toFixed(0)+'%</span>':'')+
-          '<span class="wl-score" style="color:'+rgb(col)+'">'+r.score10.toFixed(1)+'</span>';
-        d.addEventListener("click",function(){select(r.ticker);});
-        el.appendChild(d);
-      });
-    }catch(e){el.innerHTML='<div class="loading">error: '+esc(e.message)+'</div>';}
-    finally{btn.disabled=false;}
   }
 
   // ---------- memoria (saved theses — local, cheap) ----------
@@ -518,7 +491,6 @@
     e.preventDefault(); var v=document.getElementById("cmd").value.trim(); if(v) select(v);
     document.getElementById("cmd").value="";
   });
-  document.getElementById("screenBtn").addEventListener("click",runScreen);
   var v21b=document.getElementById("v21ScanBtn"); if(v21b) v21b.addEventListener("click",runV21Scan);
 
   // ---------- live stream (SSE, Phase 4) ----------
